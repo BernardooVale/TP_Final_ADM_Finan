@@ -25,209 +25,137 @@ Dependências
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 from scipy import stats, optimize
-from scipy.special import ndtr
-from dataclasses import dataclass, field
-from enum import Enum
+from scipy.optimize import minimize_scalar
+from numba import njit, prange
 
-
-# ═══════════════════════════════════════════════════════════════
-# Enumerações
-# ═══════════════════════════════════════════════════════════════
-
-class RiscoAlvo(str, Enum):
-    """Define como a perda esperada da RV é calculada nos cenários ruins."""
-    MEDIA = "media"  # média dos cenários abaixo do limiar de confiança
-    PIOR  = "pior"   # mínimo absoluto dos cenários abaixo do limiar (CVaR extremo)
-
-
-class FrequenciaRentabilidadeRendaFix(str, Enum):
-    """Frequência em que a taxa da RF é expressa."""
-    DIARIO     = "diario"
-    MENSAL     = "mensal"
-    TRIMESTRAL = "trimestral"
-    ANUAL      = "anual"
-
-
-class FrequenciaAporte(str, Enum):
-    """Intervalo entre aportes periódicos."""
-    MENSAL     = "mensal"      # a cada 21 dias úteis
-    TRIMESTRAL = "trimestral"  # a cada 63 dias úteis
-    SEMESTRAL  = "semestral"   # a cada 126 dias úteis
-
-
-# ═══════════════════════════════════════════════════════════════
-# Constantes de mapeamento
-# ═══════════════════════════════════════════════════════════════
-
-# Dias úteis equivalentes por frequência de RF
-DIAS_UTEIS_RF: dict[FrequenciaRentabilidadeRendaFix, int] = {
-    FrequenciaRentabilidadeRendaFix.DIARIO:      1,
-    FrequenciaRentabilidadeRendaFix.MENSAL:     21,
-    FrequenciaRentabilidadeRendaFix.TRIMESTRAL:  63,
-    FrequenciaRentabilidadeRendaFix.ANUAL:      252,
-}
-
-# Dias úteis equivalentes por frequência de aporte
-DIAS_UTEIS_APORTE: dict[FrequenciaAporte, int] = {
-    FrequenciaAporte.MENSAL:     21,
-    FrequenciaAporte.TRIMESTRAL:  63,
-    FrequenciaAporte.SEMESTRAL:  126,
-}
-
-
-# ═══════════════════════════════════════════════════════════════
-# Dataclass de resultado
-# ═══════════════════════════════════════════════════════════════
-
-@dataclass
-class AlocacaoResultado:
-    """
-    Contém todos os dados de saída da simulação.
-
-    Campos principais
-    -----------------
-    capitalTotal               : capital inicial investido
-    alocadoRendaFixa           : parcela alocada em RF
-    alocadoRendaVariavel       : parcela alocada em RV
-    saldoFinalRendaFixa        : valor da RF ao fim do horizonte (inclui aportes)
-    perdaEsperadaRendaVariavel : perda da RV no cenário alvo
-    patrimonioFinal            : RF final + RV após perda esperada
-    distribuicaoPatrimonio     : patrimônio final em todos os cenários simulados
-    sharpe / sortino           : métricas de risco/retorno da carteira RV simulada
-    otimizado                  : resultado com pesos otimizados (None se não solicitado)
-    """
-    capitalTotal:               float
-    alocadoRendaFixa:           float
-    alocadoRendaVariavel:       float
-    saldoFinalRendaFixa:        float
-    perdaEsperadaRendaVariavel: float
-    patrimonioFinal:            float
-    confianca:                  float
-    riscoAlvo:                  RiscoAlvo
-    diasInvestimento:           int
-    proporcaoAcao:              np.ndarray
-    tickers:                    list[str]
-    distribuicaoPatrimonio:     np.ndarray = field(default_factory=lambda: np.array([]))
-    sharpe:                     float = 0.0
-    sortino:                    float = 0.0
-    otimizado:                  "AlocacaoResultado | None" = None
-
-    # ── Formatação do output ──
-
-    def _str_percentis(self) -> str:
-        """Formata os percentis P5/P25/P50/P75/P95 da distribuição do patrimônio final."""
-        if not len(self.distribuicaoPatrimonio):
-            return ""
-        percentis = np.percentile(self.distribuicaoPatrimonio, [5, 25, 50, 75, 95])
-        linhas = ["\n  Distribuição do patrimônio final (R$):"]
-        for p, val in zip([5, 25, 50, 75, 95], percentis):
-            linhas.append(f"    P{p:>2}:  R$ {val:>12,.2f}")
-        return "\n".join(linhas)
-
-    def _str_bloco(self, titulo: str = "") -> str:
-        """
-        Monta o bloco de texto formatado para exibição no terminal.
-        O cabeçalho (cab) inclui linha decorativa e título opcional.
-        """
-        cab = f"\n{'═'*55}\n"
-        if titulo:
-            cab += f"  {titulo}\n{'─'*55}\n"
-
-        pesos_fmt = "  ".join(
-            f"{t}: {p*100:.1f}%" for t, p in zip(self.tickers, self.proporcaoAcao)
-        )
-        return (
-            f"{cab}"
-            f"  Pesos RV:            {pesos_fmt}\n"
-            f"  Capital total:       R$ {self.capitalTotal:>12,.2f}\n"
-            f"  Alocado em RF:       R$ {self.alocadoRendaFixa:>12,.2f}  ({self.alocadoRendaFixa/self.capitalTotal*100:.1f}%)\n"
-            f"  Alocado em RV:       R$ {self.alocadoRendaVariavel:>12,.2f}  ({self.alocadoRendaVariavel/self.capitalTotal*100:.1f}%)\n"
-            f"{'─'*55}\n"
-            f"  RF ao fim ({self.diasInvestimento}d):   R$ {self.saldoFinalRendaFixa:>12,.2f}\n"
-            f"  Perda esperada RV:   R$ {self.perdaEsperadaRendaVariavel:>12,.2f}\n"
-            f"{'─'*55}\n"
-            f"  Patrimônio final:    R$ {self.patrimonioFinal:>12,.2f}\n"
-            f"  Cobertura:           {'✓ >= capital inicial' if self.patrimonioFinal >= self.capitalTotal else '✗ insuficiente'}\n"
-            f"  Cenário:             {self.riscoAlvo.value} | confiança {self.confianca*100:.0f}%\n"
-            f"  Sharpe:              {self.sharpe:.4f}\n"
-            f"  Sortino:             {self.sortino:.4f}\n"
-            f"{self._str_percentis()}\n"
-            f"{'═'*55}\n"
-        )
-
-    def __str__(self) -> str:
-        s = self._str_bloco("Pesos originais")
-        if self.otimizado is not None:
-            s += self.otimizado._str_bloco("Pesos otimizados (mín. CVaR)")
-        return s
-
-
-# ═══════════════════════════════════════════════════════════════
-# Aquisição e validação de dados
-# ═══════════════════════════════════════════════════════════════
-
-def _baixar_retornos(tickers: list[str], periodo: str) -> tuple[pd.DataFrame, list[str]]:
-    """
-    Baixa histórico de preços via yfinance e calcula retornos diários.
-
-    Remove tickers sem dados suficientes (< 30 observações) e avisa o usuário.
-    Retorna o DataFrame de retornos e a lista de tickers válidos.
-    """
-    print("Baixando e validando tickers...")
-    precos = yf.download(tickers, period=periodo, auto_adjust=True, progress=False)["Close"]
-
-    # yfinance retorna Series quando há apenas um ticker — força DataFrame
-    if isinstance(precos, pd.Series):
-        precos = precos.to_frame(name=tickers[0])
-
-    # Filtra tickers com dados insuficientes para calibração confiável
-    validos   = [t for t in tickers if t in precos.columns and precos[t].notna().sum() > 30]
-    invalidos = set(tickers) - set(validos)
-
-    if invalidos:
-        print(f"  ⚠ Tickers ignorados (sem dados suficientes): {invalidos}")
-    if not validos:
-        raise ValueError("Nenhum ticker válido encontrado. Verifique os símbolos informados.")
-
-    retornos = precos[validos].pct_change().dropna()
-    return retornos, validos
-
+from mineracao import baixar_retornos
+from defs import RiscoAlvo, FrequenciaRentabilidadeRendaFix, FrequenciaAporte, DIAS_UTEIS_APORTE, DIAS_UTEIS_RF, AlocacaoResultado
 
 # ═══════════════════════════════════════════════════════════════
 # Calibração estatística
 # ═══════════════════════════════════════════════════════════════
 
-def _calibrar_t_student(serie: pd.Series) -> tuple[float, float, float]:
+def _calibrar_t_student(serie: pd.Series) -> tuple[float, float, float, float, float, float]:
     """
-    Ajusta distribuição t-Student aos retornos de um ativo via MLE.
+    Ajusta distribuição t-Student aos retornos de um ativo via MLE
+    e calibra parâmetros GARCH(1,1) sobre os resíduos padronizados.
 
-    A t-Student captura caudas gordas melhor que a normal,
-    representando com mais fidelidade eventos extremos de mercado.
+    GARCH(1,1)
+    ----------
+    sigma2_t = omega + alpha * epsilon2_{t-1} + beta * sigma2_{t-1}
 
-    Retorna (nu, mu, sigma): graus de liberdade, média e escala.
+    - omega : variância base (piso)
+    - alpha : peso do choque recente (reatividade)
+    - beta  : peso da variância anterior (persistência)
+    - alpha + beta < 1 garante estacionariedade — variância reverte à média
+
+    Retorna (nu, mu, sigma, omega, alpha, beta).
+    sigma aqui é o desvio incondicional (longo prazo), usado como sigma2_0.
     """
     nu, mu, sigma = stats.t.fit(serie)
-    return nu, mu, sigma
 
+    # Resíduos padronizados: remove média e escala pela volatilidade incondicional
+    residuos = (serie.values - mu) / sigma          # shape (T,)
 
-def _calibrar_todos(retornos: pd.DataFrame, tickers: list[str]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    # Variância incondicional de longo prazo: sigma2_bar = omega / (1 - alpha - beta)
+    # Usada para inicializar sigma2_0 na simulação
+    sigma2_bar = sigma ** 2
+
+    def log_verossimilhanca_negativa(params):
+        omega, alpha, beta = params
+        if omega <= 0 or alpha < 0 or beta < 0 or alpha + beta >= 1:
+            return 1e10                             # penaliza parâmetros inválidos
+
+        T       = len(residuos)
+        sigma2  = np.empty(T)
+        sigma2[0] = sigma2_bar                      # inicializa com variância incondicional
+
+        for t in range(1, T):
+            sigma2[t] = omega + alpha * residuos[t-1]**2 + beta * sigma2[t-1]
+
+        # Log-verossimilhança da normal padrão (resíduos já padronizados)
+        ll = -0.5 * np.sum(np.log(sigma2) + residuos**2 / sigma2)
+        return -ll                                  # negativa pois minimize()
+
+    # Ponto inicial: omega pequeno, alpha+beta moderado e estacionário
+    w0     = [sigma2_bar * 0.05, 0.1, 0.85]
+    bounds = [(1e-8, None), (1e-6, 0.5), (1e-6, 0.9999)]
+
+    res = optimize.minimize(
+        log_verossimilhanca_negativa, w0,
+        method="L-BFGS-B", bounds=bounds,
+        options={"maxiter": 500, "ftol": 1e-9},
+    )
+
+    omega, alpha, beta = res.x if res.success else (sigma2_bar * 0.05, 0.1, 0.85)
+    return nu, mu, sigma, float(omega), float(alpha), float(beta)
+
+def _calibrar_nu_copula(retornos: pd.DataFrame) -> float:
     """
-    Calibra t-Student para cada ativo e computa a matriz de correlação.
+    Estima nu da cópula-t via MLE 1D sobre distâncias de Mahalanobis.
 
-    Retorna (nus, mus, sigmas, corr) como arrays numpy.
+    Fluxo:
+    1. Transforma cada série em uniformes via rank (empírico CDF)
+    2. Transforma uniformes em normais padrão (probability integral transform)
+    3. Computa distância de Mahalanobis: d_t = x_t^T Sigma^{-1} x_t
+       que segue qui-quadrado escalonado sob t-multivariada
+    4. MLE 1D sobre essas distâncias para estimar nu
+
+    Mais preciso que proxy marginal — captura dependência conjunta de cauda
+    sem custo de MLE multivariada exata (O(k³) por iteração).
     """
+    n, k = retornos.shape
+
+    # Passos 1-2: uniformes empíricas → normais padrão (igual à versão anterior)
+    uniformes = retornos.rank() / (n + 1)
+    normais   = stats.norm.ppf(uniformes.values)          # (n, k)
+
+    # Passo 3: matriz de correlação empírica e sua inversa
+    corr_emp = np.corrcoef(normais, rowvar=False)         # (k, k)
+    
+    # Regularização leve para garantir invertibilidade
+    corr_emp += np.eye(k) * 1e-6
+    corr_inv = np.linalg.inv(corr_emp)                   # (k, k)
+
+    # Distância de Mahalanobis ao quadrado para cada observação
+    # d_t = x_t^T Sigma^{-1} x_t — escalar por observação
+    maha = np.einsum('ti,ij,tj->t', normais, corr_inv, normais)  # (n,)
+
+    # Passo 4: MLE 1D — sob t-multivariada com nu graus de liberdade,
+    # (nu/k) * d_t ~ F(k, nu) ou equivalente: d_t * nu/k ~ chi2(k) escalonado
+    # Mais direto: log-verossimilhança da t-multivariada marginalizada em d_t
+    def neg_ll(nu: float) -> float:
+        # d_t * nu / k ~ chi2(nu) sob H0 — MLE sobre essa estatística
+        scale = nu / k
+        return -float(np.sum(stats.chi2.logpdf(maha * scale, df=nu)))
+
+    res = minimize_scalar(neg_ll, bounds=(2.1, 50.0), method="bounded")
+
+    nu_copula = float(res.x) if res.success else 10.0    # fallback conservador
+    print(f"  nu cópula calibrado: {nu_copula:.2f} {'(caudas pesadas)' if nu_copula < 10 else '(próximo gaussiana)'}")
+    return nu_copula
+
+def _calibrar_todos(
+    retornos: pd.DataFrame,
+    tickers: list[str],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray]:
+
     fitted = [_calibrar_t_student(retornos[t]) for t in tickers]
     nus    = np.array([f[0] for f in fitted])
     mus    = np.array([f[1] for f in fitted])
     sigmas = np.array([f[2] for f in fitted])
+    omegas = np.array([f[3] for f in fitted])
+    alphas = np.array([f[4] for f in fitted])
+    betas  = np.array([f[5] for f in fitted])
 
-    # Matriz de correlação histórica — preservada na simulação via decomposição de Cholesky
-    corr = retornos.corr().values
+    corr      = retornos.corr().values
+    nu_copula = _calibrar_nu_copula(retornos)             # passa DataFrame já filtrado
 
-    return nus, mus, sigmas, corr
+    for t, o, a, b in zip(tickers, omegas, alphas, betas):
+        print(f"  GARCH {t}: omega={o:.2e}  alpha={a:.4f}  beta={b:.4f}  persistência={a+b:.4f}")
 
+    return nus, mus, sigmas, corr, nu_copula, omegas, alphas, betas
 
 # ═══════════════════════════════════════════════════════════════
 # Conversão de taxa de RF
@@ -288,7 +216,9 @@ def _valor_futuro_aportes(
     for d in range(intervalo, diasInvestimento, intervalo):
         dias_restantes   = diasInvestimento - d
         ciclos_completos = dias_restantes // ciclo_rf  # floor implícito da divisão inteira
-        total += valorAporte * (1 + rentabilidadeRendaFixa) ** ciclos_completos
+        diaria = _taxa_diaria_rf(rentabilidadeRendaFixa, frequenciaRendaFixa)
+        taxa_ciclo = (1 + diaria) ** ciclo_rf - 1
+        total += valorAporte * (1 + taxa_ciclo) ** ciclos_completos
 
     return total
 
@@ -297,42 +227,124 @@ def _valor_futuro_aportes(
 # Simulação Monte Carlo
 # ═══════════════════════════════════════════════════════════════
 
-def _simular_retornos_diarios(
-    mus: np.ndarray,
-    sigmas: np.ndarray,
-    nus: np.ndarray,
-    chol: np.ndarray,
-    n_sim: int,
-    diasInvestimento: int,
-    n_assets: int,
-    z_fixo: np.ndarray | None,
+@njit(parallel=True, cache=True)
+def _garch_scan(
+    epsilon: np.ndarray,
+    omegas:  np.ndarray,
+    alphas:  np.ndarray,
+    betas:   np.ndarray,
+    mus:     np.ndarray,
+    sigmas:  np.ndarray,
 ) -> np.ndarray:
     """
-    Gera retornos diários correlacionados para todos os ativos e cenários.
+    Evolução GARCH(1,1) vetorizada via Numba.
 
-    Usa a decomposição de Cholesky da matriz de correlação para introduzir
-    dependência entre os ativos. Os retornos individuais seguem t-Student.
+    Loop externo (cenários) paralelizado com prange — cada cenário é
+    independente, zero contenção. Loop interno (dias) sequencial por
+    necessidade: sigma2[t] depende de sigma2[t-1].
 
-    Retorna array de shape (n_sim, diasInvestimento, n_assets).
+    sigma2_0 = variância incondicional: omega / (1 - alpha - beta)
+
+    Compilado em C na primeira chamada (cache=True evita recompilação
+    entre sessões).
     """
-    # Ruído base: normal padrão independente por ativo
-    # Reutiliza z_fixo se fornecido (otimização de tempo — evita re-sampling)
-    z = z_fixo if z_fixo is not None else np.random.standard_normal((n_sim, diasInvestimento, n_assets))
+    S, D, A   = epsilon.shape
+    retornos  = np.empty((S, D, A))
 
-    # Reshape para aplicar PPF em array 2D em vez de 3D fatiado
-    S, D, A = z.shape
-    z_flat  = z.reshape(-1, A)                    # (S*D, A)
-    u_flat  = np.empty_like(z_flat)
+    for s in prange(S):                                  # paralelo entre cenários
+        # sigma2 inicial: variância incondicional por ativo
+        sigma2 = np.empty(A)
+        for a in range(A):
+            denom    = 1.0 - alphas[a] - betas[a]
+            sigma2[a] = omegas[a] / denom if denom > 1e-8 else sigmas[a] ** 2
 
-    for i in range(A):                            # loop só sobre ativos (3), não S*D
-        u_flat[:, i] = stats.t.ppf(
-            ndtr(z_flat[:, i]),           
-            df=nus[i], loc=mus[i], scale=sigmas[i]
-        )
+        for d in range(D):                               # sequencial — dependência temporal
+            for a in range(A):
+                sigma_t            = sigma2[a] ** 0.5
+                retornos[s, d, a]  = mus[a] + sigma_t * epsilon[s, d, a]
+                choque             = (sigma_t * epsilon[s, d, a]) ** 2
+                sigma2[a]          = omegas[a] + alphas[a] * choque + betas[a] * sigma2[a]
 
-    u = u_flat.reshape(S, D, A)
-    return u @ chol.T
+    return retornos
 
+def _simular_retornos_diarios(
+    mus:              np.ndarray,
+    sigmas:           np.ndarray,
+    nus:              np.ndarray,
+    chol:             np.ndarray,
+    n_sim:            int,
+    diasInvestimento: int,
+    n_assets:         int,
+    z_fixo:           np.ndarray | None,
+    nu_copula:        float = 30.0,
+    omegas:           np.ndarray | None = None,
+    alphas:           np.ndarray | None = None,
+    betas:            np.ndarray | None = None,
+) -> np.ndarray:
+    """
+    Gera retornos diários correlacionados com cópula-t e volatilidade GARCH(1,1).
+
+    Fluxo
+    -----
+    1. Gera z normal padrão (S, D, A)
+    2. Cópula-t: divide z por sqrt(chi2_compartilhado / nu_copula)
+    3. Correlaciona via Cholesky: y = t_copula @ L^T
+    4. Transforma y para uniformes via CDF_t(nu_copula)
+    5. Aplica PPF marginal t-Student de cada ativo → inovações epsilon (S, D, A)
+    6. GARCH: _garch_scan evolui sigma2_t em loop compilado (Numba)
+       Sem GARCH: sigma fixo, caminho numpy puro (retrocompatível)
+    """
+    S, D, A = n_sim, diasInvestimento, n_assets
+
+    z = z_fixo if z_fixo is not None else np.random.standard_normal((S, D, A))
+
+    # ── Cópula-t ──
+    chi2_shared = np.random.chisquare(nu_copula, size=(S, D, 1)) / nu_copula
+    t_copula    = z / np.sqrt(chi2_shared)
+    y           = t_copula @ chol.T
+
+    y_flat = y.reshape(-1, A)
+    u_flat = np.empty_like(y_flat)
+    for i in range(A):
+        u_flat[:, i] = stats.t.cdf(y_flat[:, i], df=nu_copula)
+
+    x_flat = np.empty_like(u_flat)
+    for i in range(A):
+        x_flat[:, i] = stats.t.ppf(u_flat[:, i], df=nus[i], loc=0.0, scale=1.0)
+
+    epsilon = x_flat.reshape(S, D, A)
+
+    # ── Sem GARCH: caminho original ──
+    if omegas is None or alphas is None or betas is None:
+        return epsilon * sigmas[np.newaxis, np.newaxis, :] + mus[np.newaxis, np.newaxis, :]
+
+    # ── Com GARCH: loop compilado ──
+    return _garch_scan(
+        epsilon,
+        omegas.astype(np.float64),
+        alphas.astype(np.float64),
+        betas.astype(np.float64),
+        mus.astype(np.float64),
+        sigmas.astype(np.float64),
+    )
+
+def _cholesky_seguro(corr: np.ndarray) -> np.ndarray:
+    """
+    Tenta Cholesky direto. Se falhar (matriz não-positiva-definida por
+    outliers ou multicolinearidade), aplica correção de Higham via
+    eigendecomposição — clipa autovalores negativos e reconstrói.
+    """
+    try:
+        return np.linalg.cholesky(corr)
+    except np.linalg.LinAlgError:
+        print("  ⚠ Correlação não-positiva-definida — aplicando correção de Higham")
+        vals, vecs = np.linalg.eigh(corr)
+        vals       = np.maximum(vals, 1e-8)          # clipa autovalores negativos
+        corr_fixed = vecs @ np.diag(vals) @ vecs.T
+        # Renormaliza diagonal para 1 (preserva estrutura de correlação)
+        d          = np.sqrt(np.diag(corr_fixed))
+        corr_fixed = corr_fixed / np.outer(d, d)
+        return np.linalg.cholesky(corr_fixed)
 
 def monteCarlo(
     mus: np.ndarray,
@@ -345,9 +357,13 @@ def monteCarlo(
     diasRebalanceamento: int | None = None,
     z_fixo: np.ndarray | None = None,
     chunk_size: int = 50_000,
+    nu_copula: float = 30.0,
+    omegas=None,
+    alphas=None,
+    betas=None
 ) -> np.ndarray:
     
-    chol     = np.linalg.cholesky(matrizCorrelacao)
+    chol     = _cholesky_seguro(matrizCorrelacao)
     n_assets = len(mus)
     resultados = []
 
@@ -363,7 +379,12 @@ def monteCarlo(
         )
 
         r_diario = _simular_retornos_diarios(
-            mus, sigmas, nus, chol, n_chunk, diasInvestimento, n_assets, z_chunk
+            mus, sigmas, 
+            nus, chol, 
+            n_chunk, diasInvestimento, 
+            n_assets, z_chunk, 
+            nu_copula, omegas, 
+            alphas, betas
         )
 
         if diasRebalanceamento is None:
@@ -510,7 +531,6 @@ def _montar_resultado(
         sortino=sortino,
     )
 
-
 def _simular_para_pesos(
     capitalTotal: float,
     proporcaoAcao: np.ndarray,
@@ -528,6 +548,10 @@ def _simular_para_pesos(
     diasRebalanceamento: int | None,
     capitalAportes: float,
     retornosCumulativos: np.ndarray | None = None,
+    nu_copulas: float = 30.0,
+    omegas = None,
+    alphas = None,
+    betas = None,
 ) -> tuple["AlocacaoResultado", np.ndarray]:
     """
     Executa Monte Carlo e monta o resultado para um dado vetor de pesos.
@@ -539,6 +563,7 @@ def _simular_para_pesos(
         retornosCumulativos = monteCarlo(
             mus, sigmas, nus, corr, proporcaoAcao,
             diasInvestimento, numSimulacoes, diasRebalanceamento,
+            nu_copula=nu_copulas, omegas=omegas, alphas=alphas, betas=betas   
         )
 
     retornoAcoes    = _retorno_cenario_alvo(retornosCumulativos, confianca, riscoAlvo)
@@ -566,6 +591,10 @@ def _otimizar_pesos(
     numSimulacoes: int,
     diasRebalanceamento: int | None,
     poupaTempo: bool,
+    nu_copulas: float = 30.0,
+    omegas = None,
+    alphas = None,
+    betas = None,
 ) -> np.ndarray:
     """
     Encontra os pesos da carteira RV que minimizam o CVaR via Nelder-Mead.
@@ -574,12 +603,11 @@ def _otimizar_pesos(
     ----------
     - Função objetivo: CVaR da distribuição de retornos simulados.
     - Pesos sempre positivos e normalizados para somar 1 (via abs + normalização).
-    - Se `poupaTempo=True`: usa menos simulações, z pré-fixado e tolerâncias maiores,
-      reduzindo drasticamente o tempo ao custo de precisão levemente menor.
-
-    z_fixo: ruído base pré-gerado e reutilizado em todas as iterações do otimizador.
-    Isso elimina re-sampling e torna a busca determinística — o otimizador não
-    persegue ruído entre iterações, convergindo mais rápido.
+    - z_fixo sempre pré-gerado — superfície objetivo determinística em todas
+      as iterações, independente de poupaTempo. Evita que Nelder-Mead persiga
+      ruído entre iterações em vez de gradiente real.
+    - poupaTempo reduz n_sim e afrouxa tolerâncias, mas mantém z fixo.
+    - Validação final re-simula com novo ruído para evitar overfitting ao z fixo.
     """
     n     = len(mus)
     n_sim = numSimulacoes // 20 if poupaTempo else numSimulacoes // 5
@@ -588,33 +616,32 @@ def _otimizar_pesos(
         else {"maxiter": 300, "xatol": 1e-3, "fatol": 1e-4}
     )
 
-    # Pré-gera ruído base uma única vez para todas as iterações do otimizador
-    z_fixo = np.random.standard_normal((n_sim, diasInvestimento, n)) if poupaTempo else None
+    # Sempre fixo — determinismo na superfície objetivo
+    z_fixo = np.random.standard_normal((n_sim, diasInvestimento, n))
 
     print("  Otimizando pesos (minimização de CVaR)...")
-    contador = [0]  # lista para permitir mutação dentro do closure
+    contador = [0]
 
     def objetivo(w: np.ndarray) -> float:
-        """Função objetivo: CVaR dos retornos simulados para os pesos w."""
         contador[0] += 1
         print(f"  Iteração {contador[0]}", end="\r")
 
         w_norm = np.abs(w) / np.abs(w).sum()
         ret    = monteCarlo(mus, sigmas, nus, corr, w_norm,
-                            diasInvestimento, n_sim, diasRebalanceamento, z_fixo)
+                            diasInvestimento, n_sim, diasRebalanceamento, z_fixo,
+                            nu_copula=nu_copulas, omegas=omegas, alphas=alphas, betas=betas)
         limiar = np.percentile(ret, (1 - confianca) * 100)
         return float(ret[ret <= limiar].mean())
 
-    w0  = np.ones(n) / n  # ponto inicial: pesos iguais
+    w0  = np.ones(n) / n
     res = optimize.minimize(objetivo, w0, method="Nelder-Mead", options=opts)
 
-    print()  # quebra linha após os \r do contador
+    print()
     w_opt = np.abs(res.x) / np.abs(res.x).sum()
     pesos_fmt = {t: round(float(w), 4) for t, w in zip(range(n), w_opt)}
     print(f"  Pesos otimizados: {pesos_fmt}")
 
     return w_opt
-
 
 # ═══════════════════════════════════════════════════════════════
 # Função principal
@@ -660,14 +687,14 @@ def simulacaoPortifolio(
     """
 
     # ── 1. Validação e download dos dados históricos ──
-    retornos, tickers = _baixar_retornos(tickers, periodo)
+    retornos, tickers = baixar_retornos(tickers, periodo)
 
     # Renormaliza pesos caso algum ticker tenha sido removido na validação
     proporcaoAcao = np.array(proporcaoAcao[:len(tickers)], dtype=float)
     proporcaoAcao /= proporcaoAcao.sum()
 
     # ── 2. Calibração das distribuições e correlação ──
-    nus, mus, sigmas, corr = _calibrar_todos(retornos, tickers)
+    nus, mus, sigmas, corr, nu_copula, omegas, alphas, betas = _calibrar_todos(retornos, tickers)
 
     # ── 3. Parâmetros da RF ──
     diario_rf          = _taxa_diaria_rf(rentabilidadeRendaFixa, frequenciaRendaFixa)
@@ -691,6 +718,7 @@ def simulacaoPortifolio(
         crescimentoRF, retorno_rf_periodo,
         riscoAlvo, diasInvestimento, confianca,
         numSimulacoes, diasRebalanceamento, capitalAportes,
+        nu_copulas=nu_copula, omegas=omegas, alphas=alphas, betas=betas
     )
 
     # ── 6. Otimização de pesos (opcional) ──
@@ -700,6 +728,8 @@ def simulacaoPortifolio(
             mus, sigmas, nus, corr,
             diasInvestimento, confianca, numSimulacoes,
             diasRebalanceamento, poupaTempo,
+            nu_copulas=nu_copula, omegas=omegas,
+            alphas=alphas, betas=betas
         )
         resultado_opt, _ = _simular_para_pesos(
             capitalTotal, w_opt, tickers,
@@ -707,6 +737,7 @@ def simulacaoPortifolio(
             crescimentoRF, retorno_rf_periodo,
             riscoAlvo, diasInvestimento, confianca,
             numSimulacoes, diasRebalanceamento, capitalAportes,
+            nu_copulas=nu_copula, omegas=omegas, alphas=alphas, betas=betas
         )
         resultado.otimizado = resultado_opt
 
