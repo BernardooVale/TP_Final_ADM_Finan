@@ -26,7 +26,6 @@ class FrequenciaAporte(str, Enum):
     TRIMESTRAL = "trimestral"  # a cada 63 dias úteis
     SEMESTRAL  = "semestral"   # a cada 126 dias úteis
 
-
 # ═══════════════════════════════════════════════════════════════
 # Constantes de mapeamento
 # ═══════════════════════════════════════════════════════════════
@@ -48,7 +47,7 @@ DIAS_UTEIS_APORTE: dict[FrequenciaAporte, int] = {
 
 
 # ═══════════════════════════════════════════════════════════════
-# Dataclass de resultado
+# Dataclass
 # ═══════════════════════════════════════════════════════════════
 
 @dataclass
@@ -132,3 +131,75 @@ class AlocacaoResultado:
         if self.otimizado is not None:
             s += self.otimizado._str_bloco("Pesos otimizados (mín. CVaR)")
         return s
+    
+@dataclass
+class ParametrosCalibrados:
+    nus:       np.ndarray
+    mus:       np.ndarray
+    sigmas:    np.ndarray
+    omegas:    np.ndarray
+    alphas:    np.ndarray
+    betas:     np.ndarray
+    corr:      np.ndarray
+    nu_copula: float
+
+@dataclass
+class ParametrosRF:
+    crescimento:     float
+    retorno_periodo: float
+    
+
+@dataclass
+class BoundsAtivo:
+    """
+    Limites de alocação por ativo.
+
+    tickers_rv  : bounds para cada ação (min, max), na mesma ordem de `tickers`
+    rf          : bounds para a fração total em RF (min, max); None = sem restrição
+    
+    Exemplo:
+        BoundsAtivo(
+            tickers_rv = [(0.1, 0.5), (0.1, 0.4), (0.0, 0.3)],
+            rf         = (0.2, 0.8),
+        )
+    """
+    tickers_rv: list[tuple[float, float]]         # [(min, max), ...] para cada ativo RV
+    rf:         tuple[float, float] | None = None  # (min, max) fração RF no portfólio total
+
+
+@dataclass
+class PontoFronteira:
+    """Um ponto na fronteira eficiente CVaR."""
+    retorno_alvo:   float          # retorno-alvo do portfólio total no período
+    cvar:           float          # CVaR realizado com os pesos ótimos
+    retorno_medio:  float          # retorno médio simulado do portfólio total
+    fracao_rf:      float          # fração do capital em RF
+    fracao_rv:      float          # fração do capital em RV
+    pesos_rv:       np.ndarray     # pesos dentro da parcela RV (soma = 1)
+    tickers:        list[str]
+
+
+@dataclass
+class FronteiraEficiente:
+    """
+    Resultado completo da fronteira eficiente CVaR.
+
+    pontos  : lista ordenada por retorno_alvo crescente
+    tickers : ativos RV usados
+    """
+    pontos:  list[PontoFronteira]
+    tickers: list[str]
+
+    def to_dict(self) -> list[dict]:
+        """Serializa para lista de dicts (fácil de converter em DataFrame)."""
+        return [
+            {
+                "retorno_alvo":  p.retorno_alvo,
+                "cvar":          p.cvar,
+                "retorno_medio": p.retorno_medio,
+                "fracao_rf":     p.fracao_rf,
+                "fracao_rv":     p.fracao_rv,
+                **{f"peso_{t}": float(w) for t, w in zip(p.tickers, p.pesos_rv)},
+            }
+            for p in self.pontos
+        ]
