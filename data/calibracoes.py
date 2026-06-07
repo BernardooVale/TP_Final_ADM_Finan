@@ -3,7 +3,7 @@ from scipy import stats, optimize
 import pandas as pd
 from scipy.optimize import minimize_scalar
 
-from defs import ParametrosCalibrados
+from modelos.params import ParametrosCalibrados
 
 def _calibrar_garch(residuos: np.ndarray, sigma2_bar: float) -> tuple[float, float, float]:
     """

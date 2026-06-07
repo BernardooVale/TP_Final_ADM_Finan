@@ -25,16 +25,17 @@ Dependências
 
 import numpy as np
 
-from mineracao import baixar_retornos
-from defs import (
-    RiscoAlvo,
+from data.mineracao import baixar_retornos
+from data.calibracoes import calibrar_todos
+from renda_fixa import preparar_aportes, preparar_parametros_rf
+from modelos.defs import (
     FrequenciaRentabilidadeRendaFix,
     FrequenciaAporte,
-    AlocacaoResultado,
+    RiscoAlvo
 )
-from calibracoes import calibrar_todos
-from renda_fixa import preparar_aportes, preparar_parametros_rf
-from simulacao import otimizar_pesos, simular_para_pesos
+from modelos.results import AlocacaoResultado
+from engine.otimizacao import otimizar_pesos
+from engine.alocacao import simular_para_pesos
 
 def simulacaoPortifolio(
     capitalTotal:           float,

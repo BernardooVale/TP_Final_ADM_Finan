@@ -27,18 +27,11 @@ CVaR minimizado sobre a distribuição de R_s.
 
 import numpy as np
 from scipy import optimize
-from typing import Callable
 
-from defs import (
-    ParametrosCalibrados,
-    ParametrosRF,
-    BoundsAtivo,
-    PontoFronteira,
-    FronteiraEficiente,
-    RiscoAlvo,
-)
-from monte_carlo import monteCarlo
-
+from modelos.params import ParametrosCalibrados, ParametrosRF
+from modelos.pareto import PontoFronteira, FronteiraEficiente
+from modelos.params import BoundsAtivo
+from engine.monte_carlo import monteCarlo
 
 # ═══════════════════════════════════════════════════════════════
 # Retorno do portfólio total

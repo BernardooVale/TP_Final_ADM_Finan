@@ -1,54 +1,13 @@
-from enum import Enum
 from dataclasses import dataclass, field
 import numpy as np
 
-# ═══════════════════════════════════════════════════════════════
-# Enumerações
-# ═══════════════════════════════════════════════════════════════
-
-class RiscoAlvo(str, Enum):
-    """Define como a perda esperada da RV é calculada nos cenários ruins."""
-    MEDIA = "media"  # média dos cenários abaixo do limiar de confiança
-    PIOR  = "pior"   # mínimo absoluto dos cenários abaixo do limiar (CVaR extremo)
-
-
-class FrequenciaRentabilidadeRendaFix(str, Enum):
-    """Frequência em que a taxa da RF é expressa."""
-    DIARIO     = "diario"
-    MENSAL     = "mensal"
-    TRIMESTRAL = "trimestral"
-    ANUAL      = "anual"
-
-
-class FrequenciaAporte(str, Enum):
-    """Intervalo entre aportes periódicos."""
-    MENSAL     = "mensal"      # a cada 21 dias úteis
-    TRIMESTRAL = "trimestral"  # a cada 63 dias úteis
-    SEMESTRAL  = "semestral"   # a cada 126 dias úteis
-
-# ═══════════════════════════════════════════════════════════════
-# Constantes de mapeamento
-# ═══════════════════════════════════════════════════════════════
-
-# Dias úteis equivalentes por frequência de RF
-DIAS_UTEIS_RF: dict[FrequenciaRentabilidadeRendaFix, int] = {
-    FrequenciaRentabilidadeRendaFix.DIARIO:      1,
-    FrequenciaRentabilidadeRendaFix.MENSAL:     21,
-    FrequenciaRentabilidadeRendaFix.TRIMESTRAL:  63,
-    FrequenciaRentabilidadeRendaFix.ANUAL:      252,
-}
-
-# Dias úteis equivalentes por frequência de aporte
-DIAS_UTEIS_APORTE: dict[FrequenciaAporte, int] = {
-    FrequenciaAporte.MENSAL:     21,
-    FrequenciaAporte.TRIMESTRAL:  63,
-    FrequenciaAporte.SEMESTRAL:  126,
-}
-
-
-# ═══════════════════════════════════════════════════════════════
-# Dataclass
-# ═══════════════════════════════════════════════════════════════
+from defs import RiscoAlvo, FrequenciaAporte
+from pareto import (
+    RestricaoMeta,
+    RestricaoPiso,
+    PontoParetoPatrimonio,
+)
+from estrategias import MetricasEstrategia
 
 @dataclass
 class AlocacaoResultado:
@@ -133,78 +92,6 @@ class AlocacaoResultado:
         return s
     
 @dataclass
-class ParametrosCalibrados:
-    nus:       np.ndarray
-    mus:       np.ndarray
-    sigmas:    np.ndarray
-    omegas:    np.ndarray
-    alphas:    np.ndarray
-    betas:     np.ndarray
-    corr:      np.ndarray
-    nu_copula: float
-
-@dataclass
-class ParametrosRF:
-    crescimento:     float
-    retorno_periodo: float
-    
-
-@dataclass
-class BoundsAtivo:
-    """
-    Limites de alocação por ativo.
-
-    tickers_rv  : bounds para cada ação (min, max), na mesma ordem de `tickers`
-    rf          : bounds para a fração total em RF (min, max); None = sem restrição
-    
-    Exemplo:
-        BoundsAtivo(
-            tickers_rv = [(0.1, 0.5), (0.1, 0.4), (0.0, 0.3)],
-            rf         = (0.2, 0.8),
-        )
-    """
-    tickers_rv: list[tuple[float, float]]         # [(min, max), ...] para cada ativo RV
-    rf:         tuple[float, float] | None = None  # (min, max) fração RF no portfólio total
-
-
-@dataclass
-class PontoFronteira:
-    """Um ponto na fronteira eficiente CVaR."""
-    retorno_alvo:   float          # retorno-alvo do portfólio total no período
-    cvar:           float          # CVaR realizado com os pesos ótimos
-    retorno_medio:  float          # retorno médio simulado do portfólio total
-    fracao_rf:      float          # fração do capital em RF
-    fracao_rv:      float          # fração do capital em RV
-    pesos_rv:       np.ndarray     # pesos dentro da parcela RV (soma = 1)
-    tickers:        list[str]
-
-
-@dataclass
-class FronteiraEficiente:
-    """
-    Resultado completo da fronteira eficiente CVaR.
-
-    pontos  : lista ordenada por retorno_alvo crescente
-    tickers : ativos RV usados
-    """
-    pontos:  list[PontoFronteira]
-    tickers: list[str]
-
-    def to_dict(self) -> list[dict]:
-        """Serializa para lista de dicts (fácil de converter em DataFrame)."""
-        return [
-            {
-                "retorno_alvo":  p.retorno_alvo,
-                "cvar":          p.cvar,
-                "retorno_medio": p.retorno_medio,
-                "fracao_rf":     p.fracao_rf,
-                "fracao_rv":     p.fracao_rv,
-                **{f"peso_{t}": float(w) for t, w in zip(p.tickers, p.pesos_rv)},
-            }
-            for p in self.pontos
-        ]
-        
-@dataclass
 class ResultadoMeta:
     """
     Alocação ótima para atingir uma meta de patrimônio com probabilidade p.
@@ -251,29 +138,6 @@ class ResultadoMeta:
             f"{'═'*55}\n"
         )
         
-@dataclass
-class RestricaoPiso:
-    """Patrimônio mínimo aceitável e cobertura desejada."""
-    valor:      float   # R$ — ex: 95_000 (não perder mais de 5%)
-    confianca:  float   # ex: 0.95  → P(patrimônio >= valor) >= 0.95
-
-
-@dataclass
-class RestricaoMeta:
-    """Patrimônio-alvo e probabilidade mínima de atingi-lo."""
-    valor:      float   # R$ — ex: 125_000
-    confianca:  float   # ex: 0.60  → P(patrimônio >= valor) >= 0.60
-
-
-@dataclass
-class PontoParetoPatrimonio:
-    """Um ponto na fronteira de Pareto piso × meta."""
-    alocRV:         float   # R$ alocado em RV
-    alocRF:         float   # R$ alocado em RF
-    prob_piso:      float   # P(patrimônio >= piso) realizado
-    prob_meta:      float   # P(patrimônio >= meta) realizado
-
-
 @dataclass
 class ResultadoDuploObjetivo:
     """
@@ -397,7 +261,7 @@ class ResultadoDesacumulacao:
     """
     capitalTotal:         float
     saque_simulado:       float
-    frequencia_saque:     "FrequenciaAporte"
+    frequencia_saque:     FrequenciaAporte
     saque_sustentavel:    float | None
     prob_ruina:           float
     limite_ruina_alvo:    float
@@ -440,48 +304,6 @@ class ResultadoDesacumulacao:
 
         return s + f"{'═'*55}\n"
     
-class TipoEstrategiaBase(str, Enum):
-    """Estratégias fixas disponíveis para comparação."""
-    RF_100       = "100% RF"
-    RV_100       = "100% RV"
-    RV75_RF25    = "75% RV / 25% RF"
-    RV25_RF75    = "25% RV / 75% RF"
-
-
-@dataclass
-class EstrategiaUsuario:
-    """
-    Estratégia customizada do usuário para o comparador.
-
-    Aceita qualquer resultado que contenha uma distribuição de patrimônio
-    já simulada (AlocacaoResultado ou ResultadoMeta).
-
-    Parâmetros
-    ----------
-    nome                  : rótulo exibido na tabela comparativa
-    distribuicaoPatrimonio: array (n_sim,) de patrimônio final em R$
-                            — extraído de resultado.distribuicaoPatrimonio
-    fracao_rv             : fração em RV usada (para exibição); None = desconhecido
-    """
-    nome:                   str
-    distribuicaoPatrimonio: np.ndarray
-    fracao_rv:              float | None = None
-
-
-@dataclass
-class MetricasEstrategia:
-    """Métricas comparativas de uma estratégia."""
-    nome:          str
-    fracao_rv:     float | None
-    q1:            float   # P25 do patrimônio final (R$)
-    mediana:       float   # P50
-    q3:            float   # P75
-    media:         float
-    prob_meta:     float | None   # P(patrimônio >= meta); None se meta não definida
-    prob_perda:    float          # P(patrimônio < capitalTotal)
-    retorno_medio: float          # (media / capitalTotal) - 1
-
-
 @dataclass
 class ResultadoComparador:
     """

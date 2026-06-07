@@ -1,10 +1,10 @@
-from defs import (
+from modelos.defs import (
     FrequenciaRentabilidadeRendaFix,
     FrequenciaAporte,
     DIAS_UTEIS_APORTE,
     DIAS_UTEIS_RF,
-    ParametrosRF
 )
+from modelos.dataclass import ParametrosRF
 
 def _taxa_diaria_rf(rate: float, frequencia: FrequenciaRentabilidadeRendaFix) -> float:
     """

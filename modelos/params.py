@@ -1,0 +1,113 @@
+import numpy as np
+from dataclasses import dataclass
+
+@dataclass
+class ParametrosCalibrados:
+    nus:       np.ndarray
+    mus:       np.ndarray
+    sigmas:    np.ndarray
+    omegas:    np.ndarray
+    alphas:    np.ndarray
+    betas:     np.ndarray
+    corr:      np.ndarray
+    nu_copula: float
+
+    def __post_init__(self) -> None:
+        self._validar()
+
+    def _validar(self) -> None:
+        erros: list[str] = []
+
+        # ── Graus de liberdade marginais ──
+        # nu > 2 exigido para variância finita da t-Student.
+        # nu <= 2 produz PPF divergente nas caudas — inovações infinitas no kernel.
+        for i, nu in enumerate(self.nus):
+            if nu <= 2.0:
+                erros.append(
+                    f"nus[{i}]={nu:.4f}: t-Student requer nu > 2 para variância finita"
+                )
+
+        # ── Grau de liberdade da cópula ──
+        if self.nu_copula <= 2.0:
+            erros.append(
+                f"nu_copula={self.nu_copula:.4f}: cópula-t requer nu > 2 para variância finita"
+            )
+
+        # ── Parâmetros GARCH ──
+        for i, (o, a, b) in enumerate(zip(self.omegas, self.alphas, self.betas)):
+            if o <= 0:
+                erros.append(f"omegas[{i}]={o:.2e}: omega deve ser positivo")
+            if a < 0:
+                erros.append(f"alphas[{i}]={a:.4f}: alpha deve ser não-negativo")
+            if b < 0:
+                erros.append(f"betas[{i}]={b:.4f}: beta deve ser não-negativo")
+            if a + b >= 1.0:
+                # Não bloqueia — _sigma2_iniciais já lida com persistência alta.
+                # Aviso aqui garante rastreabilidade mesmo fora do caminho de simulação.
+                import warnings
+                warnings.warn(
+                    f"ativo {i}: alpha+beta={a+b:.6f} >= 1 (IGARCH) — "
+                    "variância incondicional indefinida; sigma2_0 usará variância amostral",
+                    UserWarning,
+                    stacklevel=3,
+                )
+
+        # ── Matriz de correlação ──
+        A = len(self.mus)
+        if self.corr.shape != (A, A):
+            erros.append(
+                f"corr.shape={self.corr.shape}: esperado ({A}, {A})"
+            )
+        else:
+            # Simetria
+            if not np.allclose(self.corr, self.corr.T, atol=1e-8):
+                erros.append("corr não é simétrica")
+
+            # Diagonal unitária
+            diag = np.diag(self.corr)
+            if not np.allclose(diag, 1.0, atol=1e-6):
+                erros.append(f"corr diagonal não é unitária: min={diag.min():.6f} max={diag.max():.6f}")
+
+            # Positiva semi-definida — autovalores não-negativos
+            eigvals = np.linalg.eigvalsh(self.corr)
+            if eigvals.min() < -1e-6:
+                erros.append(
+                    f"corr não é positiva semi-definida: menor autovalor={eigvals.min():.2e} "
+                    "(_cholesky_seguro aplicará correção de Higham)"
+                )
+                import warnings
+                warnings.warn(
+                    "Matriz de correlação não é positiva semi-definida — "
+                    "correção de Higham será aplicada automaticamente no Cholesky",
+                    UserWarning,
+                    stacklevel=3,
+                )
+
+        if erros:
+            raise ValueError(
+                "ParametrosCalibrados inválidos:\n" +
+                "\n".join(f"  • {e}" for e in erros)
+            )
+
+@dataclass
+class ParametrosRF:
+    crescimento:     float
+    retorno_periodo: float
+    
+
+@dataclass
+class BoundsAtivo:
+    """
+    Limites de alocação por ativo.
+
+    tickers_rv  : bounds para cada ação (min, max), na mesma ordem de `tickers`
+    rf          : bounds para a fração total em RF (min, max); None = sem restrição
+    
+    Exemplo:
+        BoundsAtivo(
+            tickers_rv = [(0.1, 0.5), (0.1, 0.4), (0.0, 0.3)],
+            rf         = (0.2, 0.8),
+        )
+    """
+    tickers_rv: list[tuple[float, float]]         # [(min, max), ...] para cada ativo RV
+    rf:         tuple[float, float] | None = None  # (min, max) fração RF no portfólio total
