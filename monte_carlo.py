@@ -75,6 +75,146 @@ def _garch_scan(
 
     return retornos
 
+@njit(parallel=True, cache=True)
+def _garch_scan_tempo_meta(
+    epsilon:             np.ndarray,   # (S, D, A)
+    omegas:              np.ndarray,
+    alphas:              np.ndarray,
+    betas:               np.ndarray,
+    mus:                 np.ndarray,
+    sigmas:              np.ndarray,
+    pesos:               np.ndarray,   # (A,) pesos RV normalizados
+    fracao_rf:           float,        # fração do capital total em RF
+    crescimento_rf_dia:  float,        # fator diário RF: (1 + taxa_diaria)
+    aporte_dia:          float,        # R$ adicionado a cada dia útil (0 = sem aporte)
+    intervalo_aporte:    int,          # dias úteis entre aportes (0 = sem aporte)
+    capital_inicial:     float,
+    meta:                float,
+) -> np.ndarray:
+    """
+    GARCH(1,1) + acúmulo de patrimônio dia a dia; retorna dia de cruzamento da meta.
+
+    Para cada cenário s:
+      - Mantém patrimônio_rf e patrimônio_rv separados
+      - A cada dia: aplica retorno RF no componente RF, retorno RV ponderado no RV
+      - Se intervalo_aporte > 0: adiciona aporte_dia ao componente RF nos dias certos
+      - Quando patrimônio_rf + patrimônio_rv >= meta: registra dia e para
+
+    Retorna array (S,) de float:
+      - dia de cruzamento (1-indexed) se atingiu
+      - -1.0 se não atingiu dentro do horizonte D
+    """
+    S, D, A = epsilon.shape
+    resultado = np.full(S, -1.0)
+
+    for s in prange(S):
+        # Inicializa volatilidade GARCH
+        sigma2 = np.empty(A)
+        for a in range(A):
+            denom     = 1.0 - alphas[a] - betas[a]
+            sigma2[a] = omegas[a] / denom if denom > 1e-8 else sigmas[a] ** 2
+
+        pat_rf = capital_inicial * fracao_rf
+        pat_rv = capital_inicial * (1.0 - fracao_rf)
+
+        for d in range(D):
+            # Retorno RV ponderado do dia
+            ret_rv_dia = 0.0
+            for a in range(A):
+                sigma_t    = sqrt(sigma2[a])
+                r_at       = mus[a] + sigma_t * epsilon[s, d, a]
+                ret_rv_dia += pesos[a] * r_at
+                choque     = (sigma_t * epsilon[s, d, a]) ** 2
+                sigma2[a]  = omegas[a] + alphas[a] * choque + betas[a] * sigma2[a]
+
+            # Evolução do patrimônio
+            pat_rf *= crescimento_rf_dia
+            pat_rv *= (1.0 + ret_rv_dia)
+
+            # Aporte periódico (adicionado à parcela RF)
+            if intervalo_aporte > 0 and (d + 1) % intervalo_aporte == 0:
+                pat_rf += aporte_dia
+
+            # Verifica cruzamento da meta
+            if pat_rf + pat_rv >= meta:
+                resultado[s] = float(d + 1)   # 1-indexed
+                break
+
+    return resultado
+
+@njit(parallel=True, cache=True)
+def _garch_scan_desacumulacao(
+    epsilon:            np.ndarray,   # (S, D, A)
+    omegas:             np.ndarray,
+    alphas:             np.ndarray,
+    betas:              np.ndarray,
+    mus:                np.ndarray,
+    sigmas:             np.ndarray,
+    pesos:              np.ndarray,   # (A,) pesos RV normalizados
+    fracao_rf:          float,
+    crescimento_rf_dia: float,        # (1 + taxa_diaria_rf)
+    saque_por_dia:      float,        # R$ retirado a cada `intervalo_saque` dias
+    intervalo_saque:    int,          # dias úteis entre saques
+    capital_inicial:    float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    GARCH(1,1) com saques periódicos; detecta ruína cenário a cenário.
+
+    Evolução por dia d:
+        pat_rf *= crescimento_rf_dia
+        pat_rv *= (1 + retorno_rv_ponderado_d)
+        se (d+1) % intervalo_saque == 0: subtrai saque_por_dia de pat_rf
+            se pat_rf < 0: transfere déficit de pat_rv (venda de RV para cobrir saque)
+        se pat_rf + pat_rv <= 0: registra ruína e para
+
+    Retorna
+    -------
+    dia_ruina       : (S,) float — dia da ruína (1-indexed) ou -1.0 se sobreviveu
+    patrimonio_final: (S,) float — patrimônio no último dia (0.0 se arruinou)
+    """
+    S, D, A = epsilon.shape
+    dia_ruina        = np.full(S, -1.0)
+    patrimonio_final = np.zeros(S)
+
+    for s in prange(S):
+        sigma2 = np.empty(A)
+        for a in range(A):
+            denom     = 1.0 - alphas[a] - betas[a]
+            sigma2[a] = omegas[a] / denom if denom > 1e-8 else sigmas[a] ** 2
+
+        pat_rf = capital_inicial * fracao_rf
+        pat_rv = capital_inicial * (1.0 - fracao_rf)
+        arruinou = False
+
+        for d in range(D):
+            # Retorno RV ponderado
+            ret_rv_dia = 0.0
+            for a in range(A):
+                sigma_t    = sqrt(sigma2[a])
+                r_at       = mus[a] + sigma_t * epsilon[s, d, a]
+                ret_rv_dia += pesos[a] * r_at
+                choque     = (sigma_t * epsilon[s, d, a]) ** 2
+                sigma2[a]  = omegas[a] + alphas[a] * choque + betas[a] * sigma2[a]
+
+            pat_rf *= crescimento_rf_dia
+            pat_rv *= (1.0 + ret_rv_dia)
+
+            # Saque periódico: debita da parcela RF; se insuficiente, liquida RV
+            if intervalo_saque > 0 and (d + 1) % intervalo_saque == 0:
+                pat_rf -= saque_por_dia
+                if pat_rf < 0.0:
+                    pat_rv += pat_rf   # transfere déficit (pat_rf negativo)
+                    pat_rf  = 0.0
+
+            if pat_rf + pat_rv <= 0.0:
+                dia_ruina[s] = float(d + 1)
+                arruinou     = True
+                break
+
+        if not arruinou:
+            patrimonio_final[s] = pat_rf + pat_rv
+
+    return dia_ruina, patrimonio_final
 
 def _cholesky_seguro(corr: np.ndarray) -> np.ndarray:
     """
