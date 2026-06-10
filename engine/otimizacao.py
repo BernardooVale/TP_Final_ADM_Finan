@@ -2,8 +2,8 @@ import numpy as np
 from scipy import optimize
 
 from modelos.params import ParametrosCalibrados
-from monte_carlo import monteCarlo
-from metricas import _cvar
+from engine.monte_carlo import monteCarlo
+from engine.metricas import _cvar
 
 def _normalizar_pesos(w: np.ndarray) -> np.ndarray:
     """Garante pesos positivos normalizados para somar 1."""

@@ -2,14 +2,11 @@ import numpy as np
 from scipy import stats
 
 from modelos.params import ParametrosCalibrados
-from kernels import _garch_scan
 
 _T_GRID_CACHE: dict[float, tuple[np.ndarray, np.ndarray]] = {}
 
 _T_GRID_N      = 20_000   # pontos na grade — erro de interpolação < 1e-6
 _T_GRID_TAIL   = 1 - 1e-7 # cobre até P(0.0000001) e P(0.9999999)
-
-_IGARCH_THRESHOLD = 0.999
 
 def _t_grid(df: float) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -74,33 +71,6 @@ def _gerar_inovacoes(
 
     return x_flat.reshape(S, D, A)
 
-def _sigma2_iniciais(
-    omegas: np.ndarray,
-    alphas: np.ndarray,
-    betas:  np.ndarray,
-    sigmas: np.ndarray,
-) -> np.ndarray:
-    """
-    Calcula sigma2_0 por ativo com fallback explícito para alta persistência.
-
-    alpha + beta < threshold  → variância incondicional: omega / (1 - alpha - beta)
-    alpha + beta >= threshold → variância amostral histórica: sigmas[a] ** 2
-
-    Emite aviso para ativos com persistência elevada — processo próximo de IGARCH
-    torna a variância incondicional numericamente instável como inicializador.
-    """
-    A      = len(omegas)
-    out    = np.empty(A)
-    for a in range(A):
-        persist = alphas[a] + betas[a]
-        if persist >= _IGARCH_THRESHOLD:
-            out[a] = sigmas[a] ** 2
-            print(f"  ⚠ Ativo {a}: persistência GARCH={persist:.4f} >= {_IGARCH_THRESHOLD} "
-                  f"— usando variância amostral como sigma2_0 (processo próximo de IGARCH)")
-        else:
-            out[a] = omegas[a] / (1.0 - persist)
-    return out
-
 def _cholesky_seguro(corr: np.ndarray) -> np.ndarray:
     """
     Cholesky com fallback via correção de Higham.
@@ -133,26 +103,12 @@ def _simular_retornos_diarios(
     diasInvestimento: int,
     z_fixo:           np.ndarray | None,
 ) -> np.ndarray:
+    
     A = len(params.mus)
     z = z_fixo if z_fixo is not None else np.random.standard_normal((n_sim, diasInvestimento, A))
 
     epsilon = _gerar_inovacoes(z, chol, params.nu_copula, params.nus)
-
-    if params.omegas is None or params.alphas is None or params.betas is None:
-        return epsilon * params.sigmas[np.newaxis, np.newaxis, :] + params.mus[np.newaxis, np.newaxis, :]
-
-    sigma2_0 = _sigma2_iniciais(params.omegas, params.alphas, params.betas, params.sigmas)
-
-    return _garch_scan(
-        epsilon,
-        params.omegas.astype(np.float64),
-        params.alphas.astype(np.float64),
-        params.betas.astype(np.float64),
-        params.mus.astype(np.float64),
-        params.sigmas.astype(np.float64),
-        sigma2_0.astype(np.float64),
-    )
-
+    return epsilon * params.sigmas[np.newaxis, np.newaxis, :] + params.mus[np.newaxis, np.newaxis, :]
 
 def _acumular_retornos_chunk(
     r_diario:            np.ndarray,

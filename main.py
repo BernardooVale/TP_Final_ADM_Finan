@@ -121,18 +121,271 @@ def simulacaoPortifolio(
 # Exemplo de uso
 # ═══════════════════════════════════════════════════════════════
 
-simulacaoPortifolio(
-    capitalTotal           = 100_000,
+    simulacaoPortifolio(
+        capitalTotal           = 100_000,
+        tickers                = ["PETR4.SA", "VALE3.SA", "ITUB4.SA"],
+        proporcaoAcao          = [0.4, 0.35, 0.25],
+        rentabilidadeRendaFixa = 0.145,
+        frequenciaRendaFixa    = FrequenciaRentabilidadeRendaFix.ANUAL,
+        riscoAlvo              = RiscoAlvo.MEDIA,
+        diasInvestimento       = 252,
+        confianca              = 0.85,
+        otimizacao             = False,
+        diasRebalanceamento    = 63,
+        valorAporte            = 1_000,
+        frequenciaAporte       = FrequenciaAporte.MENSAL,
+        poupaTempo             = False,
+    )
+    
+from engine.comparador import comparar_estrategias
+
+def compararEstrategias(
+    tickers, proporcaoAcao, meta, capitalTotal, rentabilidadeRendaFixa, frequenciaRendaFixa, periodo = "3y", diasInvestimento = 252, numSimulacoes = 1_000_000
+    ):
+    
+    # ── 1. Download e validação ──
+    retornos, tickers = baixar_retornos(tickers, periodo)
+    proporcaoAcao     = np.array(proporcaoAcao[:len(tickers)], dtype=float)
+    proporcaoAcao    /= proporcaoAcao.sum()
+
+    # ── 2. Calibração ──
+    params = calibrar_todos(retornos, tickers)
+
+    # ── 3. Parâmetros RF ──
+    rf = preparar_parametros_rf(rentabilidadeRendaFixa, frequenciaRendaFixa, diasInvestimento)
+
+    resultado = comparar_estrategias(
+        capitalTotal     = capitalTotal,
+        proporcaoAcao    = proporcaoAcao,
+        tickers          = tickers,
+        params           = params,
+        rf               = rf,
+        diasInvestimento = diasInvestimento,
+        meta             = meta,
+        numSimulacoes    = numSimulacoes,
+    )
+
+    print(resultado)
+    return resultado
+
+    compararEstrategias(["PETR4.SA", "VALE3.SA", "ITUB4.SA"], [0.4, 0.35, 0.25], 120_000, 100_000, 0.145, FrequenciaRentabilidadeRendaFix.ANUAL)
+    
+from engine.desacumulacao import simular_desacumulacao
+from renda_fixa import _taxa_diaria_rf
+
+def simularDesacumulacao(
+    tickers:                list[str],
+    proporcaoAcao:          list[float],
+    capitalTotal:           float,
+    saque:                  float,
+    frequenciaSaque:        FrequenciaAporte,
+    fracao_rv:              float,
+    rentabilidadeRendaFixa: float,
+    frequenciaRendaFixa:    FrequenciaRentabilidadeRendaFix,
+    periodo:                str   = "3y",
+    diasInvestimento:       int   = 252 * 20,
+    numSimulacoes:          int   = 100_000,
+    limite_ruina:           float = 0.05,
+    diasRebalanceamento:    int | None = None,
+):
+    # ── 1. Download e validação ──
+    retornos, tickers = baixar_retornos(tickers, periodo)
+    proporcaoAcao     = np.array(proporcaoAcao[:len(tickers)], dtype=float)
+    proporcaoAcao    /= proporcaoAcao.sum()
+
+    # ── 2. Calibração ──
+    params = calibrar_todos(retornos, tickers)
+
+    # ── 3. Parâmetros RF ──
+    rf                   = preparar_parametros_rf(rentabilidadeRendaFixa, frequenciaRendaFixa, diasInvestimento)
+    rentabilidadeRFDiaria = _taxa_diaria_rf(rentabilidadeRendaFixa, frequenciaRendaFixa)
+
+    resultado = simular_desacumulacao(
+        capitalTotal          = capitalTotal,
+        saque                 = saque,
+        frequenciaSaque       = frequenciaSaque,
+        fracao_rv             = fracao_rv,
+        proporcaoAcao         = proporcaoAcao,
+        tickers               = tickers,
+        params                = params,
+        rf                    = rf,
+        rentabilidadeRFDiaria = rentabilidadeRFDiaria,
+        diasInvestimento      = diasInvestimento,
+        numSimulacoes         = numSimulacoes,
+        limite_ruina          = limite_ruina,
+        diasRebalanceamento   = diasRebalanceamento,
+    )
+
+    print(resultado)
+    return resultado
+
+    simularDesacumulacao(
+        tickers                = ["PETR4.SA", "VALE3.SA", "ITUB4.SA"],
+        proporcaoAcao          = [0.4, 0.35, 0.25],
+        capitalTotal           = 100_000,
+        saque                  = 1_000,
+        frequenciaSaque        = FrequenciaAporte.MENSAL,
+        fracao_rv              = 0.3,
+        rentabilidadeRendaFixa = 0.145,
+        frequenciaRendaFixa    = FrequenciaRentabilidadeRendaFix.ANUAL,
+    )
+    
+from engine.fronteira import calcular_fronteira
+
+def calcularFronteira(
+    tickers:                list[str],
+    proporcaoAcao:          list[float],
+    rentabilidadeRendaFixa: float,
+    frequenciaRendaFixa:    FrequenciaRentabilidadeRendaFix,
+    periodo:                str   = "3y",
+    diasInvestimento:       int   = 252,
+    confianca:              float = 0.95,
+    n_pontos:               int   = 10,
+    n_sim:                  int   = 5_000,
+    diasRebalanceamento:    int | None = None,
+):
+    # ── 1. Download e validação ──
+    retornos, tickers = baixar_retornos(tickers, periodo)
+    proporcaoAcao     = np.array(proporcaoAcao[:len(tickers)], dtype=float)
+    proporcaoAcao    /= proporcaoAcao.sum()
+
+    # ── 2. Calibração ──
+    params = calibrar_todos(retornos, tickers)
+
+    # ── 3. Parâmetros RF ──
+    rf = preparar_parametros_rf(rentabilidadeRendaFixa, frequenciaRendaFixa, diasInvestimento)
+
+    fronteira = calcular_fronteira(
+        params     = params,
+        tickers    = tickers,
+        rf         = rf,
+        diasInvest = diasInvestimento,
+        confianca  = confianca,
+        n_pontos   = n_pontos,
+        n_sim      = n_sim,
+        diasRebal  = diasRebalanceamento,
+    )
+
+    for ponto in fronteira.pontos:
+        pesos_fmt = "  ".join(f"{t}: {w*100:.1f}%" for t, w in zip(ponto.tickers, ponto.pesos_rv))
+        print(f"Retorno alvo: {ponto.retorno_alvo*100:.1f}%  "
+              f"CVaR: {ponto.cvar*100:.1f}%  "
+              f"RF: {ponto.fracao_rf*100:.1f}%  "
+              f"RV: {ponto.fracao_rv*100:.1f}%  "
+              f"Pesos: {pesos_fmt}")
+
+    return fronteira
+
+calcularFronteira(
     tickers                = ["PETR4.SA", "VALE3.SA", "ITUB4.SA"],
     proporcaoAcao          = [0.4, 0.35, 0.25],
     rentabilidadeRendaFixa = 0.145,
     frequenciaRendaFixa    = FrequenciaRentabilidadeRendaFix.ANUAL,
-    riscoAlvo              = RiscoAlvo.PIOR,
-    diasInvestimento       = 252,
-    confianca              = 0.95,
-    otimizacao             = False,
-    diasRebalanceamento    = 63,
-    valorAporte            = 1_000,
-    frequenciaAporte       = FrequenciaAporte.MENSAL,
-    poupaTempo             = False,
 )
+    
+from engine.meta_patrimonio import simular_meta_patrimonio
+
+def simularMetaPatrimonio(
+    tickers:                list[str],
+    proporcaoAcao:          list[float],
+    capitalTotal:           float,
+    meta:                   float,
+    probabilidade:          float,
+    rentabilidadeRendaFixa: float,
+    frequenciaRendaFixa:    FrequenciaRentabilidadeRendaFix,
+    periodo:                str   = "3y",
+    diasInvestimento:       int   = 252,
+    numSimulacoes:          int   = 1_000_000,
+    diasRebalanceamento:    int | None = None,
+):
+    # ── 1. Download e validação ──
+    retornos, tickers = baixar_retornos(tickers, periodo)
+    proporcaoAcao     = np.array(proporcaoAcao[:len(tickers)], dtype=float)
+    proporcaoAcao    /= proporcaoAcao.sum()
+
+    # ── 2. Calibração ──
+    params = calibrar_todos(retornos, tickers)
+
+    # ── 3. Parâmetros RF ──
+    rf = preparar_parametros_rf(rentabilidadeRendaFixa, frequenciaRendaFixa, diasInvestimento)
+
+    resultado = simular_meta_patrimonio(
+        capitalTotal        = capitalTotal,
+        meta                = meta,
+        probabilidade       = probabilidade,
+        proporcaoAcao       = proporcaoAcao,
+        tickers             = tickers,
+        params              = params,
+        rf                  = rf,
+        diasInvestimento    = diasInvestimento,
+        numSimulacoes       = numSimulacoes,
+        diasRebalanceamento = diasRebalanceamento,
+    )
+
+    print(resultado)
+    return resultado
+
+    simularMetaPatrimonio(
+        tickers                = ["PETR4.SA", "VALE3.SA", "ITUB4.SA"],
+        proporcaoAcao          = [0.4, 0.35, 0.25],
+        capitalTotal           = 100_000,
+        meta                   = 130_000,
+        probabilidade          = 0.70,
+        rentabilidadeRendaFixa = 0.145,
+        frequenciaRendaFixa    = FrequenciaRentabilidadeRendaFix.ANUAL,
+    )
+    
+from engine.tempo_meta import simular_tempo_para_meta
+from renda_fixa import _taxa_diaria_rf
+
+def simularTempoParaMeta(
+    tickers:                list[str],
+    proporcaoAcao:          list[float],
+    capitalTotal:           float,
+    meta:                   float,
+    fracao_rv:              float,
+    rentabilidadeRendaFixa: float,
+    frequenciaRendaFixa:    FrequenciaRentabilidadeRendaFix,
+    periodo:                str   = "3y",
+    diasInvestimento:       int   = 252 * 10,
+    numSimulacoes:          int   = 1_000_000,
+    diasRebalanceamento:    int | None = None,
+):
+    # ── 1. Download e validação ──
+    retornos, tickers = baixar_retornos(tickers, periodo)
+    proporcaoAcao     = np.array(proporcaoAcao[:len(tickers)], dtype=float)
+    proporcaoAcao    /= proporcaoAcao.sum()
+
+    # ── 2. Calibração ──
+    params = calibrar_todos(retornos, tickers)
+
+    # ── 3. Parâmetros RF ──
+    rf                    = preparar_parametros_rf(rentabilidadeRendaFixa, frequenciaRendaFixa, diasInvestimento)
+    rentabilidadeRFDiaria = _taxa_diaria_rf(rentabilidadeRendaFixa, frequenciaRendaFixa)
+
+    resultado = simular_tempo_para_meta(
+        capitalTotal          = capitalTotal,
+        meta                  = meta,
+        fracao_rv             = fracao_rv,
+        proporcaoAcao         = proporcaoAcao,
+        tickers               = tickers,
+        params                = params,
+        rf                    = rf,
+        rentabilidadeRFDiaria = rentabilidadeRFDiaria,
+        diasInvestimento      = diasInvestimento,
+        numSimulacoes         = numSimulacoes,
+        diasRebalanceamento   = diasRebalanceamento,
+    )
+
+    print(resultado)
+    return resultado
+
+    simularTempoParaMeta(
+        tickers                = ["PETR4.SA", "VALE3.SA", "ITUB4.SA"],
+        proporcaoAcao          = [0.4, 0.35, 0.25],
+        capitalTotal           = 100_000,
+        meta                   = 200_000,
+        fracao_rv              = 0.4,
+        rentabilidadeRendaFixa = 0.145,
+        frequenciaRendaFixa    = FrequenciaRentabilidadeRendaFix.ANUAL,
+    )

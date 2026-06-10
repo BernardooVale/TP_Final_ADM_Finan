@@ -3,8 +3,8 @@ import numpy as np
 from modelos.params import ParametrosRF, ParametrosCalibrados
 from modelos.defs import RiscoAlvo
 from modelos.results import AlocacaoResultado
-from monte_carlo import monteCarlo
-from metricas import _retorno_cenario_alvo, _calcular_sharpe_sortino
+from engine.monte_carlo import monteCarlo
+from engine.metricas import _retorno_cenario_alvo, _calcular_sharpe_sortino
 
 def _resolver_alocacao(
     capitalTotal:  float,

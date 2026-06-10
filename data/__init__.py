@@ -1,2 +1,2 @@
-from mineracao import baixar_retornos
-from calibracoes import calibrar_todos
+from .mineracao import baixar_retornos
+from .calibracoes import calibrar_todos

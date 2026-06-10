@@ -3,8 +3,8 @@ import numpy as np
 from modelos.defs import FrequenciaAporte, DIAS_UTEIS_APORTE
 from modelos.params import ParametrosCalibrados, ParametrosRF
 from modelos.results import ResultadoDesacumulacao
-from monte_carlo import _cholesky_seguro, _iterar_chunks, _gerar_inovacoes, _sigma2_iniciais
-from kernels import _garch_scan_desacumulacao
+from engine.monte_carlo import _cholesky_seguro, _iterar_chunks, _gerar_inovacoes
+from engine.kernels import _garch_scan_desacumulacao
 
 def _rodar_desacumulacao(
     epsilon:            np.ndarray,
@@ -17,7 +17,8 @@ def _rodar_desacumulacao(
     intervalo_saque:    int,
     capitalTotal:       float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    sigma2_0 = _sigma2_iniciais(params.omegas, params.alphas, params.betas, params.sigmas)
+    
+    sigma2_0 = params.sigmas ** 2
 
     return _garch_scan_desacumulacao(
         epsilon.astype(np.float64),

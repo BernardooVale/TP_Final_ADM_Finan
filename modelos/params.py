@@ -6,9 +6,6 @@ class ParametrosCalibrados:
     nus:       np.ndarray
     mus:       np.ndarray
     sigmas:    np.ndarray
-    omegas:    np.ndarray
-    alphas:    np.ndarray
-    betas:     np.ndarray
     corr:      np.ndarray
     nu_copula: float
 
@@ -32,25 +29,6 @@ class ParametrosCalibrados:
             erros.append(
                 f"nu_copula={self.nu_copula:.4f}: cópula-t requer nu > 2 para variância finita"
             )
-
-        # ── Parâmetros GARCH ──
-        for i, (o, a, b) in enumerate(zip(self.omegas, self.alphas, self.betas)):
-            if o <= 0:
-                erros.append(f"omegas[{i}]={o:.2e}: omega deve ser positivo")
-            if a < 0:
-                erros.append(f"alphas[{i}]={a:.4f}: alpha deve ser não-negativo")
-            if b < 0:
-                erros.append(f"betas[{i}]={b:.4f}: beta deve ser não-negativo")
-            if a + b >= 1.0:
-                # Não bloqueia — _sigma2_iniciais já lida com persistência alta.
-                # Aviso aqui garante rastreabilidade mesmo fora do caminho de simulação.
-                import warnings
-                warnings.warn(
-                    f"ativo {i}: alpha+beta={a+b:.6f} >= 1 (IGARCH) — "
-                    "variância incondicional indefinida; sigma2_0 usará variância amostral",
-                    UserWarning,
-                    stacklevel=3,
-                )
 
         # ── Matriz de correlação ──
         A = len(self.mus)

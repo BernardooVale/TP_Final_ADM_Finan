@@ -4,7 +4,7 @@ from modelos.defs import (
     DIAS_UTEIS_APORTE,
     DIAS_UTEIS_RF,
 )
-from modelos.dataclass import ParametrosRF
+from modelos.params import ParametrosRF
 
 def _taxa_diaria_rf(rate: float, frequencia: FrequenciaRentabilidadeRendaFix) -> float:
     """

@@ -3,7 +3,7 @@ import numpy as np
 from modelos.results import ResultadoComparador
 from modelos.params import ParametrosCalibrados, ParametrosRF
 from modelos.estrategias import EstrategiaUsuario, TipoEstrategiaBase, MetricasEstrategia
-from monte_carlo import monteCarlo
+from engine.monte_carlo import monteCarlo
 
 def _metricas_distribuicao(
     nome:         str,
@@ -39,7 +39,7 @@ def comparar_estrategias(
     estrategia_usuario: EstrategiaUsuario | None         = None,
     estrategias_base:   list[TipoEstrategiaBase] | None  = None,
     meta:               float | None                       = None,
-    numSimulacoes:      int                                = 500_000,
+    numSimulacoes:      int                                = 1_000_000,
     diasRebalanceamento: int | None                        = None,
 ) -> ResultadoComparador:
     """
@@ -66,8 +66,7 @@ def comparar_estrategias(
     """
 
     if estrategias_base is None:
-        from modelos.defs import TipoEstrategiaBase as _T
-        estrategias_base = list(_T)
+        estrategias_base = list(TipoEstrategiaBase)
 
     pesos_rv = proporcaoAcao / proporcaoAcao.sum()
     n        = len(params.mus)

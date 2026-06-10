@@ -3,8 +3,8 @@ import numpy as np
 from modelos.params import ParametrosCalibrados, ParametrosRF
 from modelos.defs import FrequenciaAporte, DIAS_UTEIS_APORTE
 from modelos.results import ResultadoTempoMeta
-from monte_carlo import _cholesky_seguro, _iterar_chunks, _gerar_inovacoes, _sigma2_iniciais
-from kernels import _garch_scan_tempo_meta
+from engine.monte_carlo import _cholesky_seguro, _iterar_chunks, _gerar_inovacoes
+from engine.kernels import _garch_scan_tempo_meta
 
 def simular_tempo_para_meta(
     capitalTotal:        float,
@@ -70,16 +70,10 @@ def simular_tempo_para_meta(
         epsilon = _gerar_inovacoes(z, chol, params.nu_copula, params.nus)
         del z
 
-        sigma2_0 = _sigma2_iniciais(params.omegas, params.alphas, params.betas, params.sigmas)
-
         dias_cruzamento[start:end] = _garch_scan_tempo_meta(
             epsilon.astype(np.float64),
-            params.omegas.astype(np.float64),
-            params.alphas.astype(np.float64),
-            params.betas.astype(np.float64),
             params.mus.astype(np.float64),
             params.sigmas.astype(np.float64),
-            sigma2_0.astype(np.float64),
             pesos_rv.astype(np.float64),
             float(fracao_rf),
             float(crescimento_rf_dia),

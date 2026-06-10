@@ -1,3 +1,5 @@
 .venv/
 
 dados/
+
+__pycache__/

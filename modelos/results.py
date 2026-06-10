@@ -1,13 +1,13 @@
 from dataclasses import dataclass, field
 import numpy as np
 
-from defs import RiscoAlvo, FrequenciaAporte
-from pareto import (
+from modelos.defs import RiscoAlvo, FrequenciaAporte
+from modelos.pareto import (
     RestricaoMeta,
     RestricaoPiso,
     PontoParetoPatrimonio,
 )
-from estrategias import MetricasEstrategia
+from modelos.estrategias import MetricasEstrategia
 
 @dataclass
 class AlocacaoResultado:
