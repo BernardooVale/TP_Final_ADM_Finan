@@ -30,17 +30,17 @@ def _metricas_distribuicao(
     )
 
 def comparar_estrategias(
-    capitalTotal:      float,
-    proporcaoAcao:     np.ndarray,
-    tickers:           list[str],
-    params:            ParametrosCalibrados,
-    rf:                ParametrosRF,
-    diasInvestimento:  int,
-    estrategia_usuario: EstrategiaUsuario | None         = None,
-    estrategias_base:   list[TipoEstrategiaBase] | None  = None,
-    meta:               float | None                       = None,
-    numSimulacoes:      int                                = 1_000_000,
-    diasRebalanceamento: int | None                        = None,
+    capitalTotal:        float,
+    proporcaoAcao:       np.ndarray,
+    params:              ParametrosCalibrados,
+    rf:                  ParametrosRF,
+    diasInvestimento:    int,
+    estrategia_usuario:  EstrategiaUsuario | None = None,
+    estrategias_base:    list[TipoEstrategiaBase] = list(TipoEstrategiaBase),
+    meta:                float | None             = None,
+    numSimulacoes:       int                      = 1_000_000,
+    diasRebalanceamento: int | None               = None,
+    retornosCumulativos: np.ndarray | None        = None
 ) -> ResultadoComparador:
     """
     Compara estratégias lado a lado sobre o mesmo capital e horizonte.
@@ -64,9 +64,6 @@ def comparar_estrategias(
                           None = todas as quatro
     meta                : patrimônio-alvo para P(meta); None = omite coluna
     """
-
-    if estrategias_base is None:
-        estrategias_base = list(TipoEstrategiaBase)
 
     pesos_rv = proporcaoAcao / proporcaoAcao.sum()
     n        = len(params.mus)

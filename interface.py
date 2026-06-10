@@ -5,6 +5,14 @@ from engine import (
     otimizar_pesos, simular_tempo_para_meta
     )
 from modelos.defs import FrequenciaRentabilidadeRendaFix, RiscoAlvo, FrequenciaAporte
+from data.mineracao import baixar_retornos
+from modelos.params import Simulacao, ParametrosRF, ParametrosCalibrados
+from data.calibracoes import calibrar_todos
+from renda_fixa import preparar_aportes
+from modelos.estrategias import EstrategiaUsuario, TipoEstrategiaBase, MetricasEstrategia
+
+import pandas as pd
+import numpy as np
 
 def alocacao(
     capitalTotal:           float,
@@ -12,20 +20,42 @@ def alocacao(
     proporcaoAcao:          list[float],
     rentabilidadeRendaFixa: float,
     frequenciaRendaFixa:    FrequenciaRentabilidadeRendaFix,
+    params:                 ParametrosCalibrados,
     riscoAlvo:              RiscoAlvo,
     diasInvestimento:       int,
     confianca:              float = 0.95,
     numSimulacoes:          int = 1_000_000,
-    periodo:                str = "3y",
-    otimizacao:             bool = False,
     diasRebalanceamento:    int | None = None,
     valorAporte:            float = 0.0,
     frequenciaAporte:       FrequenciaAporte | None = None,
-    poupaTempo:             bool = False,
+    retornosCumulativos:    np.ndarray | None = None,
 ):
-    pass
+    
+    paramsRF = ParametrosRF(rentabilidadeRendaFixa, frequenciaRendaFixa)
+    capitalAportes = preparar_aportes(
+        valorAporte, frequenciaAporte, diasInvestimento,
+        rentabilidadeRendaFixa, frequenciaRendaFixa,
+    )
+    
+    resultado, retornosCumulativos = simular_para_pesos(capitalTotal, proporcaoAcao, tickers, params, paramsRF, riscoAlvo, diasInvestimento, confianca, numSimulacoes, diasRebalanceamento, capitalAportes, retornosCumulativos)
+    
+    simulacaoPrevia = Simulacao(0, retornosCumulativos)
+    
+    return resultado, simulacaoPrevia
 
-def comparacao():
+def comparacao(
+    capitalTotal: float,
+    propocaoAcao: np.ndarray,
+    params: ParametrosCalibrados,
+    rf: ParametrosRF,
+    diasInvestimento: int,
+    estrategia_usuario: EstrategiaUsuario | None = None,
+    estrategias_base: list[TipoEstrategiaBase] = list[TipoEstrategiaBase],
+    meta: float | None = None,
+    numSimulacoes: int = 1_000_000,
+    diasRebalanceamento: int | None = None,
+    retornosCumulativos: np.ndarray | None = None
+):
     pass
 
 def desacumulacao():
@@ -88,3 +118,7 @@ acoes = ["PETR4.SA", "VALE3.SA", "ITUB4.SA"]
 propocao = [0.4, 0.35, 0.25]
 rentabilidadeRendaFixa = 0.145
 diasInvestimento = 252
+periodo = "3y"
+
+retornos, tickers = baixar_retornos(acoes, periodo)
+params = calibrar_todos(retornos, tickers)

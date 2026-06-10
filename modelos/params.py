@@ -1,4 +1,5 @@
 import numpy as np
+from numpy import ndarray
 from dataclasses import dataclass
 
 @dataclass
@@ -89,3 +90,9 @@ class BoundsAtivo:
     """
     tickers_rv: list[tuple[float, float]]         # [(min, max), ...] para cada ativo RV
     rf:         tuple[float, float] | None = None  # (min, max) fração RF no portfólio total
+    
+@dataclass
+class Simulacao:
+    
+    tipoSimulacao: int
+    resultadoCumulativo: ndarray
