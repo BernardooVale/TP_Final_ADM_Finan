@@ -36,10 +36,10 @@ def simular_meta_patrimonio(
     meta:                float,
     probabilidade:       float,
     proporcaoAcao:       np.ndarray,
-    tickers:             list[str],
     params:              ParametrosCalibrados,
     rf:                  ParametrosRF,
     diasInvestimento:    int,
+    retornosCumulativos: np.ndarray | None,
     numSimulacoes:       int       = 1_000_000,
     diasRebalanceamento: int | None = None,
     capitalAportes:      float     = 0.0,
@@ -63,11 +63,12 @@ def simular_meta_patrimonio(
     tol : tolerância da busca binária em R$ (para quando |hi - lo| < tol)
     """
 
-    # Simula RV uma vez — reutilizado em toda a busca
-    print(f"Simulando {numSimulacoes} cenários para busca de meta...")
-    retornosCumulativos = monteCarlo(
-        params, proporcaoAcao, diasInvestimento, numSimulacoes, diasRebalanceamento,
-    )
+    if retornosCumulativos == None:
+        # Simula RV uma vez — reutilizado em toda a busca
+        print(f"Simulando {numSimulacoes} cenários para busca de meta...")
+        retornosCumulativos = monteCarlo(
+            params, proporcaoAcao, diasInvestimento, numSimulacoes, diasRebalanceamento,
+        )
 
     def prob_para_aloc(alocRV: float) -> tuple[float, np.ndarray]:
         dist = _patrimonio_final(alocRV, capitalTotal, retornosCumulativos, rf.crescimento, capitalAportes)
@@ -124,7 +125,7 @@ def simular_meta_patrimonio(
         patrimonio_p_alvo      = percentil,
         atingivel              = True,
         distribuicaoPatrimonio = dist_final,
-    )
+    ), retornosCumulativos
     
 def _avaliar_alocacao_dupla(
     alocRV:              float,
@@ -231,6 +232,7 @@ def simular_duplo_objetivo(
     capitalAportes:      float      = 0.0,
     n_pontos_pareto:     int        = 20,
     tol:                 float      = 0.5,
+    retornosCumulativos: np.ndarray | None = None
 ) -> ResultadoDuploObjetivo:
     """
     Encontra a fronteira de Pareto entre proteção de piso e atingimento de meta.
@@ -259,10 +261,11 @@ def simular_duplo_objetivo(
     assert piso.valor < capitalTotal * (1 + rf.retorno_periodo), \
         "Piso acima do retorno garantido pela RF — inviável por construção"
 
-    print(f"Simulando {numSimulacoes} cenários para duplo objetivo...")
-    retornosCumulativos = monteCarlo(
-        params, proporcaoAcao, diasInvestimento, numSimulacoes, diasRebalanceamento,
-    )
+    if retornosCumulativos == None:
+        print(f"Simulando {numSimulacoes} cenários para duplo objetivo...")
+        retornosCumulativos = monteCarlo(
+            params, proporcaoAcao, diasInvestimento, numSimulacoes, diasRebalanceamento,
+        )
 
     def _avalia(alocRV: float) -> PontoParetoPatrimonio:
         return _avaliar_alocacao_dupla(
@@ -337,4 +340,4 @@ def simular_duplo_objetivo(
         ponto_maximo_rv = ponto_max,
         fronteira       = fronteira,
         mensagem        = msg,
-    )
+    ), retornosCumulativos

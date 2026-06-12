@@ -9,7 +9,7 @@ e pesos internos da RV) que minimiza o CVaR, respeitando bounds por ativo.
 Diferença de Markowitz
 ----------------------
 - Métrica de risco: CVaR (coerente) em vez de variância
-- Distribuição: t-Student + cópula-t + GARCH — sem premissa de normalidade
+- Distribuição: t-Student + cópula-t — sem premissa de normalidade
 - RF explícita como ativo com retorno determinístico no período
 
 Variáveis de otimização
@@ -121,20 +121,9 @@ def _otimizar_ponto(
     z_fixo:       np.ndarray,
     tickers:      list[str],
 ) -> PontoFronteira | None:
-    """
-    Minimiza CVaR do portfólio total sujeito a retorno médio >= retorno_alvo.
 
-    x = [y_rf, w_1, ..., w_n]
-    Restrições:
-        sum(w_i) = 1
-        retorno_medio(x) >= retorno_alvo
-    """
     n          = len(params.mus)
     bounds_lst = _montar_bounds_slsqp(bounds, n)
-    restricoes = _montar_restricoes_slsqp()
-
-    # Cache de simulações RV por vetor de pesos — evita re-simular quando
-    # o otimizador testa o mesmo w repetidamente com y_rf diferente
     cache: dict[bytes, np.ndarray] = {}
 
     def _retornos_rv(w_rv: np.ndarray) -> np.ndarray:
@@ -154,29 +143,34 @@ def _otimizar_ponto(
         w_rv /= s
         return _cvar_portfolio(_retornos_rv(w_rv), y_rf, rf.retorno_periodo, confianca)
 
-    restricoes = restricoes + [{
-        "type": "ineq",
-        "fun": lambda x: (
-            _retorno_medio_portfolio(
-                _retornos_rv(np.abs(x[1:]) / max(np.abs(x[1:]).sum(), 1e-12)),
-                float(np.clip(x[0], 0, 1)),
-                rf.retorno_periodo,
-            ) - retorno_alvo
-        ),
-    }]
+    def restricao_retorno(x: np.ndarray) -> float:
+        y_rf = float(np.clip(x[0], 0, 1))
+        w_rv = np.abs(x[1:])
+        s    = w_rv.sum()
+        if s < 1e-12:
+            return -retorno_alvo
+        w_rv /= s
+        return _retorno_medio_portfolio(_retornos_rv(w_rv), y_rf, rf.retorno_periodo) - retorno_alvo
 
-    # Ponto inicial: equidistribuído
-    x0 = np.array([0.5] + [1.0 / n] * n)
+    # differential_evolution não aceita restrições de igualdade nativamente —
+    # penaliza violação da soma dos pesos no objetivo
+    def objetivo_penalizado(x: np.ndarray) -> float:
+        penalidade = 1000 * (x[1:].sum() - 1.0) ** 2  # força sum(w_rv) = 1
+        retorno_ok = restricao_retorno(x)
+        penalidade += 1000 * min(0, retorno_ok) ** 2   # penaliza retorno abaixo do alvo
+        return objetivo(x) + penalidade
 
-    res = optimize.minimize(
-        objetivo, x0,
-        method  = "SLSQP",
+    res = optimize.differential_evolution(
+        objetivo_penalizado,
         bounds  = bounds_lst,
-        constraints = restricoes,
-        options = {"maxiter": 300, "ftol": 1e-6},
+        maxiter = 100,
+        popsize = 5,
+        tol     = 1e-3,
+        seed    = 42,
+        workers = 1,   # parallelism interno conflita com Numba
     )
 
-    if not res.success:
+    if not res.success and res.fun > 0:
         return None
 
     y_rf = float(np.clip(res.x[0], 0, 1))
@@ -197,7 +191,6 @@ def _otimizar_ponto(
         tickers       = tickers,
     )
 
-
 # ═══════════════════════════════════════════════════════════════
 # Varredura da fronteira
 # ═══════════════════════════════════════════════════════════════
@@ -215,7 +208,7 @@ def _estimar_range_retorno(
     Estima retorno mínimo (100% RF) e máximo (100% RV equidistribuída)
     para definir o range de varredura automaticamente.
     """
-    ret_min = rf.retorno_periodo
+    ret_min = rf.retorno_periodo * 0.5
 
     w_eq        = np.ones(n) / n
     ret_rv      = monteCarlo(params, w_eq, diasInvest, n_sim, diasRebal, z_fixo)
@@ -246,7 +239,7 @@ def calcular_fronteira(
 
     Parâmetros
     ----------
-    params        : parâmetros calibrados (t-Student + GARCH + cópula)
+    params        : parâmetros calibrados (t-Student + cópula)
     tickers       : ativos RV
     rf            : parâmetros da renda fixa
     diasInvest    : horizonte em dias úteis

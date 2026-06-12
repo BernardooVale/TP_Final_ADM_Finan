@@ -4,7 +4,7 @@ from modelos.defs import FrequenciaAporte, DIAS_UTEIS_APORTE
 from modelos.params import ParametrosCalibrados, ParametrosRF
 from modelos.results import ResultadoDesacumulacao
 from engine.monte_carlo import _cholesky_seguro, _iterar_chunks, _gerar_inovacoes
-from engine.kernels import _garch_scan_desacumulacao
+from engine.kernels import _kernel_desacumulacao
 
 def _rodar_desacumulacao(
     epsilon:            np.ndarray,
@@ -20,13 +20,9 @@ def _rodar_desacumulacao(
     
     sigma2_0 = params.sigmas ** 2
 
-    return _garch_scan_desacumulacao(
+    return _kernel_desacumulacao(
         epsilon.astype(np.float64),
-        params.omegas.astype(np.float64),
-        params.alphas.astype(np.float64),
-        params.betas.astype(np.float64),
         params.mus.astype(np.float64),
-        params.sigmas.astype(np.float64),
         sigma2_0.astype(np.float64),
         pesos_rv.astype(np.float64),
         float(fracao_rf),
@@ -42,13 +38,11 @@ def simular_desacumulacao(
     frequenciaSaque:       FrequenciaAporte,
     fracao_rv:             float,
     proporcaoAcao:         np.ndarray,
-    tickers:               list[str],
     params:                ParametrosCalibrados,
     rf:                    ParametrosRF,
     rentabilidadeRFDiaria: float,
     diasInvestimento:      int,
     numSimulacoes:         int        = 1_000_000,
-    diasRebalanceamento:   int | None = None,
     limite_ruina:          float      = 0.05,
     percentis_duracao:     list[int]  = [10, 25, 50, 75, 90],
     tol_saque:             float      = 1.0,
@@ -78,7 +72,6 @@ def simular_desacumulacao(
     limite_ruina         : prob. máxima de ruína tolerada na busca sustentável
     tol_saque            : tolerância da busca binária em R$
     chunk_size           : cenários por chunk — controla pico de memória RAM
-    diasRebalanceamento  : reservado para versão futura do kernel
     """
 
     assert 0.0 <= fracao_rv <= 1.0, "fracao_rv deve estar em [0, 1]"
