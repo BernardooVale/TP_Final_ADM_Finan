@@ -72,6 +72,7 @@ class ParametrosCalibrados:
 class ParametrosRF:
     crescimento:     float
     retorno_periodo: float
+    taxa_diaria:     float
     
 
 @dataclass

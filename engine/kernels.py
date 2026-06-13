@@ -149,10 +149,7 @@ def _gerar_inovacoes_njit(
     for s in prange(S):
         for d in range(D):
             # ── 1. Cópula-t: divide por sqrt(chi2/nu) ──
-            chi2 = 0.0
-            for _ in range(int(nu_copula)):
-                g     = np.random.standard_normal()
-                chi2 += g * g
+            chi2 = np.random.gamma(nu_copula / 2.0, 2.0)
             chi2 /= nu_copula
 
             t_cop = np.empty(A)

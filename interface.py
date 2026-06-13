@@ -8,7 +8,7 @@ from modelos.defs import FrequenciaRentabilidadeRendaFix, RiscoAlvo, FrequenciaA
 from data.mineracao import baixar_retornos
 from modelos.params import Simulacao, ParametrosRF, ParametrosCalibrados, BoundsAtivo
 from data.calibracoes import calibrar_todos
-from renda_fixa import preparar_aportes, _taxa_diaria_rf
+from renda_fixa import preparar_aportes, _taxa_diaria_rf, preparar_parametros_rf
 from modelos.estrategias import EstrategiaUsuario, TipoEstrategiaBase
 from modelos.pareto import RestricaoPiso, RestricaoMeta
 
@@ -29,15 +29,18 @@ def alocacao(
     frequenciaAporte:       FrequenciaAporte | None = None,
     retornosCumulativos:    np.ndarray | None = None,
 ):
+    # Passa a taxa diária unificada obtida do objeto de parâmetros
     capitalAportes = preparar_aportes(
-        valorAporte, frequenciaAporte, diasInvestimento,
-        paramsRF.crescimento, paramsRF.retorno_periodo
+        valorAporte, frequenciaAporte, diasInvestimento, paramsRF.taxa_diaria
     )
     
-    resultado, retornosCumulativos = simular_para_pesos(capitalTotal, proporcaoAcao, tickers, params, paramsRF, riscoAlvo, diasInvestimento, confianca, numSimulacoes, diasRebalanceamento, capitalAportes, retornosCumulativos)
+    resultado, retornosCumulativos = simular_para_pesos(
+        capitalTotal, proporcaoAcao, tickers, params, paramsRF, riscoAlvo, 
+        diasInvestimento, confianca, numSimulacoes, diasRebalanceamento, 
+        capitalAportes, retornosCumulativos
+    )
     
     simulacaoPrevia = Simulacao(0, retornosCumulativos)
-    
     return resultado, simulacaoPrevia
 
 def comparacao(
@@ -47,7 +50,7 @@ def comparacao(
     rf: ParametrosRF,
     diasInvestimento: int,
     estrategia_usuario: EstrategiaUsuario | None = None,
-    estrategias_base: list[TipoEstrategiaBase] = list[TipoEstrategiaBase],
+    estrategias_base: list[TipoEstrategiaBase] = list(TipoEstrategiaBase),
     meta: float | None = None,
     numSimulacoes: int = 1_000_000,
     diasRebalanceamento: int | None = None,
@@ -88,7 +91,6 @@ def desacumulacao(
     percentis_duracao: list[int] = [10,25,50,75,90],
     tol_saque: float = 1.0,
 ):
-    
     resultado = simular_desacumulacao(
         capitalTotal,
         saque,
@@ -98,7 +100,7 @@ def desacumulacao(
         tickers,
         params,
         rf,
-        _taxa_diaria_rf(rf.crescimento, rf.retorno_periodo),
+        rf.taxa_diaria,  # Injeta diretamente a taxa diária universalizada
         diasInvestimento,
         numSimulacoes,
         diasRebalanceamento,
@@ -106,7 +108,6 @@ def desacumulacao(
         percentis_duracao,
         tol_saque
     )
-    
     return resultado
 
 def fronteira(
@@ -153,19 +154,19 @@ def meta(
 ):
     
     resultado, retornosCumulativos = simular_meta_patrimonio(
-        capitalTotal,
-        meta,
-        probabilidade,
-        proporcaoAcao,
-        params,
-        rf,
-        diasInvestimento,
-        numSimulacoes,
-        diasRebalanceamento,
-        capitalAportes,
-        tol,
-        retornosCumulativos
-    )
+            capitalTotal,
+            meta,
+            probabilidade,
+            proporcaoAcao,
+            params,
+            rf,
+            diasInvestimento,
+            retornosCumulativos=retornosCumulativos,
+            numSimulacoes=numSimulacoes,
+            diasRebalanceamento=diasRebalanceamento,
+            capitalAportes=capitalAportes,
+            tol=tol
+        )
     
     simulacaoPrevia = Simulacao(0, retornosCumulativos)
     
@@ -201,7 +202,8 @@ def duploObjetivo(
         diasRebalanceamento,
         capitalAportes,
         n_pontos_pareto,
-        tol
+        tol,
+        retornosCumulativos
     )
     
     simulacaoPrevia = Simulacao(0, retornosCumulativos)
@@ -215,17 +217,15 @@ def alocacaoOtimizada(
     numSimulacoes: int,
     diasRebalanceamento: int | None,
     poupaTempo: bool,
-    resultadosCumulativos: np.ndarray | None = None
 ):
 
-    resultado, resultadosCumulativos = otimizar_pesos(
+    return otimizar_pesos(
         params,
         diasInvestimento,
         confianca,
         numSimulacoes,
         diasRebalanceamento,
         poupaTempo,
-        resultadosCumulativos
     )
 
 def tempoMeta(
@@ -252,7 +252,7 @@ def tempoMeta(
         tickers,
         params,
         rf,
-        _taxa_diaria_rf(rf.crescimento, rf.retorno_periodo),
+        rf.taxa_diaria,  
         diasInvestimento,
         numSimulacoes,
         diasRebalanceamento,
@@ -265,7 +265,7 @@ def tempoMeta(
 def controle():
     while True:
         
-        resposta = input(
+        resposta = int(input(
             
             """
             Escolha a funcionalidade
@@ -279,7 +279,7 @@ def controle():
             (8) - simular tempo para meta
             \n
             """       
-        )
+        ))
         
         if resposta == 1:
             alocacao()
@@ -308,4 +308,9 @@ periodo = "3y"
 
 retornos, tickers = baixar_retornos(acoes, periodo)
 params = calibrar_todos(retornos, tickers)
-paramsRF = ParametrosRF(rentabilidadeRendaFixa, FrequenciaRentabilidadeRendaFix.ANUAL)
+
+paramsRF = preparar_parametros_rf(
+    rentabilidadeRendaFixa, 
+    FrequenciaRentabilidadeRendaFix.ANUAL, 
+    diasInvestimento
+)

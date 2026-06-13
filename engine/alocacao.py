@@ -10,18 +10,20 @@ def _resolver_alocacao(
     capitalTotal:  float,
     crescimentoRF: float,
     retornoAcoes:  float,
+    capitalAportes: float = 0.0,
 ) -> tuple[float, float]:
     """
-    Resolve algebricamente a alocação RF/RV.
+    Resolve algebricamente a alocação RF/RV considerando aportes futuros.
 
     Objetivo: RF_final + RV_final >= capitalTotal no cenário alvo.
 
-    alocRF = capitalTotal × (-retornoAcoes) / (crescimentoRF - (1 + retornoAcoes))
+    alocRF = (capitalTotal × (-retornoAcoes) - capitalAportes) / (crescimentoRF - (1 + retornoAcoes))
 
     Clipado em [0, capitalTotal] para evitar alocações negativas.
     """
     denom  = crescimentoRF - (1 + retornoAcoes)
-    alocRF = float(np.clip(capitalTotal * (-retornoAcoes) / denom, 0, capitalTotal))
+    # Correção: O capital de aportes agora abate a necessidade de alocação protetiva em RF
+    alocRF = float(np.clip((capitalTotal * (-retornoAcoes) - capitalAportes) / denom, 0, capitalTotal))
     return alocRF, capitalTotal - alocRF
 
 def _calcular_metricas_resultado(
@@ -121,7 +123,8 @@ def simular_para_pesos(
         )
 
     retornoAcoes   = _retorno_cenario_alvo(retornosCumulativos, confianca, riscoAlvo)
-    alocRF, alocRV = _resolver_alocacao(capitalTotal, rf.crescimento, retornoAcoes)
+    # Alteração: Injeção de capitalAportes na chamada da função solucionadora
+    alocRF, alocRV = _resolver_alocacao(capitalTotal, rf.crescimento, retornoAcoes, capitalAportes)
 
     resultado = _construir_resultado(
         capitalTotal, alocRF, alocRV, retornoAcoes,

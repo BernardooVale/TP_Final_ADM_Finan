@@ -63,7 +63,7 @@ def simular_meta_patrimonio(
     tol : tolerância da busca binária em R$ (para quando |hi - lo| < tol)
     """
 
-    if retornosCumulativos == None:
+    if retornosCumulativos is None:
         # Simula RV uma vez — reutilizado em toda a busca
         print(f"Simulando {numSimulacoes} cenários para busca de meta...")
         retornosCumulativos = monteCarlo(
@@ -137,7 +137,7 @@ def _avaliar_alocacao_dupla(
     meta:                RestricaoMeta,
 ) -> PontoParetoPatrimonio:
     """Computa prob_piso e prob_meta para uma alocRV candidata."""
-    from modelos.defs import PontoParetoPatrimonio
+    
     dist       = _patrimonio_final(alocRV, capitalTotal, retornosCumulativos, crescimentoRF, capitalAportes)
     prob_piso  = float((dist >= piso.valor).mean())
     prob_meta  = float((dist >= meta.valor).mean())
@@ -261,7 +261,7 @@ def simular_duplo_objetivo(
     assert piso.valor < capitalTotal * (1 + rf.retorno_periodo), \
         "Piso acima do retorno garantido pela RF — inviável por construção"
 
-    if retornosCumulativos == None:
+    if retornosCumulativos is None:
         print(f"Simulando {numSimulacoes} cenários para duplo objetivo...")
         retornosCumulativos = monteCarlo(
             params, proporcaoAcao, diasInvestimento, numSimulacoes, diasRebalanceamento,
