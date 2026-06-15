@@ -8,6 +8,7 @@ import streamlit as st
 
 from modelos.defs import FrequenciaAporte
 from app import estado
+from app.tema import badge, callout
 
 
 def cabecalho(titulo: str, descricao: str) -> None:
@@ -24,29 +25,32 @@ def status_cache(chave: tuple, do_grupo: bool) -> bool:
     simulação é própria e sempre executada.
     """
     if not do_grupo:
-        st.info(
-            "ℹ️ Esta funcionalidade roda uma **simulação própria** a cada cálculo "
-            "(não compartilha o cache de alocação/comparação/meta). Pode demorar."
+        callout(
+            "Simulação própria a cada cálculo — esta funcionalidade não compartilha "
+            "o cache de alocação, comparação e meta. Pode demorar.",
+            variant="secondary",
         )
         return False
 
     em_cache = estado.obter_simulacao(chave) is not None
     if em_cache:
-        st.success(
-            "♻️ **Simulação em cache** para esta carteira/horizonte — o resultado "
-            "sai em milissegundos, sem rodar o Monte Carlo de novo."
+        callout(
+            f"{badge('Em cache', 'success')} &nbsp; Resultado reaproveitado para esta "
+            "carteira e horizonte — sem rodar o Monte Carlo de novo.",
+            variant="success",
         )
     else:
-        st.warning(
-            "⚠️ Não há simulação em cache para esta combinação de **pesos / prazo / "
-            "qualidade**. Calcular agora vai rodar um novo Monte Carlo (pode demorar)."
+        callout(
+            f"{badge('Nova simulação', 'warning')} &nbsp; Não há cache para esta "
+            "combinação de pesos, prazo e qualidade. Calcular roda um novo Monte Carlo.",
+            variant="warning",
         )
     return em_cache
 
 
 def botao_calcular(funcionalidade: str, em_cache: bool) -> bool:
     """Botão de execução, com rótulo coerente ao estado do cache."""
-    rotulo = "Calcular (instantâneo — em cache)" if em_cache else "Rodar simulação"
+    rotulo = "Calcular" if em_cache else "Rodar simulação"
     return st.button(rotulo, type="primary", key=f"btn_{funcionalidade}")
 
 
@@ -82,23 +86,3 @@ def inputs_aporte(chave: str) -> tuple[float, FrequenciaAporte | None]:
     escolha = a2.selectbox("Frequência do aporte", opcoes, key=f"aporte_freq_{chave}")
     freq = None if escolha == _SEM_APORTE else FrequenciaAporte(escolha)
     return valor, freq
-
-
-def info_carteira_sidebar() -> None:
-    """Resumo compacto da carteira ativa, exibido no topo de cada página."""
-    cart = estado.carteira()
-    if cart is None:
-        return
-    pesos = "  ".join(
-        f"`{t}` {p*100:.0f}%" for t, p in zip(cart.tickers, cart.pesos_rv)
-    )
-    st.caption(
-        f"**Carteira ativa:** {pesos}  ·  capital "
-        f"{_reais(cart.capitalTotal)}  ·  prazo {cart.diasInvestimento}d  ·  "
-        f"qualidade {st.session_state['numSimulacoes']:,} sims".replace(",", ".")
-    )
-
-
-def _reais(v: float) -> str:
-    from app.formatacao import reais
-    return reais(v)

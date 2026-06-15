@@ -16,7 +16,6 @@ def render() -> None:
         "Distribui o tempo (anos/dias úteis) até o patrimônio cruzar a meta, "
         "considerando aportes opcionais.",
     )
-    ui.info_carteira_sidebar()
     cart = estado.carteira()
 
     c1, c2 = st.columns(2)

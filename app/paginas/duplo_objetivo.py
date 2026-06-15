@@ -8,6 +8,7 @@ from modelos.pareto import RestricaoPiso, RestricaoMeta
 from app import estado, componentes as ui
 from app.formatacao import reais, pct
 from app.graficos import pareto_piso_meta
+from app.tema import badge, callout
 
 FUNC = "duploObjetivo"
 
@@ -18,7 +19,6 @@ def render() -> None:
         "Encontra alocações que respeitam simultaneamente um piso (não perder "
         "além de X com confiança α) e uma meta (atingir Y com confiança β).",
     )
-    ui.info_carteira_sidebar()
     cart = estado.carteira()
 
     st.markdown("**Piso de segurança**")
@@ -70,10 +70,11 @@ def render() -> None:
 def _exibir(res) -> None:
     st.divider()
     if not res.viavel or res.ponto_minimo_rv is None:
-        st.error(f"Sem solução viável. {res.mensagem}")
+        callout(f"{badge('Sem solução viável', 'destructive')} &nbsp; {res.mensagem}",
+                variant="destructive")
         return
 
-    st.success(res.mensagem)
+    callout(f"{badge('Viável', 'success')} &nbsp; {res.mensagem}", variant="success")
     cap = res.capitalTotal
 
     def card(col, ponto, titulo):

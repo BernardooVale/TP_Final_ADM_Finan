@@ -1,0 +1,15 @@
+# Tema dark inspirado no shadcn/ui (paleta "zinc").
+[theme]
+base                     = "dark"
+primaryColor             = "#fafafa"   # primário shadcn dark (quase branco)
+backgroundColor          = "#09090b"   # zinc-950
+secondaryBackgroundColor = "#18181b"   # zinc-900
+textColor                = "#fafafa"   # zinc-50
+linkColor                = "#fafafa"
+borderColor              = "#27272a"   # zinc-800
+baseRadius               = "0.5rem"
+font                     = "sans-serif"
+showWidgetBorder         = true
+
+[client]
+toolbarMode = "minimal"

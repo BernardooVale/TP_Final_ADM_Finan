@@ -1,6 +1,6 @@
 # Documentação da Engine Quantitativa de Portfólio
 
-> 🖥️ **Front-end:** há uma interface Streamlit em [`app/`](app/README.md) que
+> **Front-end:** há uma interface Streamlit em [`app/`](app/README.md) que
 > expõe as 8 funcionalidades. Para rodar:
 > `.venv/bin/pip install -r requirements-app.txt && .venv/bin/streamlit run app/main.py`
 

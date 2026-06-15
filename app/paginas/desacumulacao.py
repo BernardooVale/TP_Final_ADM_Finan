@@ -7,6 +7,7 @@ import interface
 from modelos.defs import FrequenciaAporte
 from app import estado, componentes as ui
 from app.formatacao import reais, pct, anos_dias
+from app.tema import badge, callout
 
 FUNC = "desacumulacao"
 
@@ -17,7 +18,6 @@ def render() -> None:
         "Simula a fase de usufruto: calcula a probabilidade de ruína para um saque "
         "programado e o maior saque sustentável dentro do limite de ruína.",
     )
-    ui.info_carteira_sidebar()
     cart = estado.carteira()
 
     c1, c2 = st.columns(2)
@@ -68,12 +68,15 @@ def _exibir(res) -> None:
         m3.metric("Patrimônio mediano (sobreviventes)", reais(res.patrimonio_mediano))
 
     if res.saque_sustentavel is not None:
-        st.success(
-            f"Saque sustentável (ruína ≤ {pct(res.limite_ruina_alvo)}): "
-            f"**{reais(res.saque_sustentavel)}** / {res.frequencia_saque.value}"
+        callout(
+            f"{badge('Saque sustentável', 'success')} &nbsp; "
+            f"<strong>{reais(res.saque_sustentavel)}</strong> / {res.frequencia_saque.value} "
+            f"(ruína ≤ {pct(res.limite_ruina_alvo)}).",
+            variant="success",
         )
     else:
-        st.error(f"Nenhum saque sustentável com ruína ≤ {pct(res.limite_ruina_alvo)}.")
+        callout(f"{badge('Sem saque sustentável', 'destructive')} &nbsp; Nenhum valor mantém a "
+                f"ruína ≤ {pct(res.limite_ruina_alvo)}.", variant="destructive")
 
     dias = res.percentis_duracao.get("dias", {})
     if dias:

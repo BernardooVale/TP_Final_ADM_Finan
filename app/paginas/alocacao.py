@@ -19,7 +19,6 @@ def render() -> None:
         "Resolve quanto alocar em Renda Fixa e Renda Variável para que o "
         "patrimônio final cubra o capital inicial no cenário de estresse (CVaR).",
     )
-    ui.info_carteira_sidebar()
     cart = estado.carteira()
 
     c1, c2 = st.columns(2)
@@ -74,7 +73,7 @@ def _exibir(res) -> None:
     m2.metric("Alocado em RV", reais(res.alocadoRendaVariavel),
               pct(res.alocadoRendaVariavel / res.capitalTotal))
     m3.metric("Patrimônio final (cenário alvo)", reais(res.patrimonioFinal),
-              "✓ cobre o capital" if cobre else "✗ insuficiente",
+              "Cobre o capital" if cobre else "Insuficiente",
               delta_color="normal" if cobre else "inverse")
 
     st.pyplot(barras_alocacao(res.alocadoRendaFixa, res.alocadoRendaVariavel))

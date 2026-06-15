@@ -7,6 +7,7 @@ import interface
 from app import estado, componentes as ui
 from app.formatacao import pct, pct_sinal
 from app.graficos import fronteira_cvar
+from app.tema import badge, callout
 
 FUNC = "fronteira"
 
@@ -17,7 +18,6 @@ def render() -> None:
         "Gera a curva de carteiras que minimizam o risco de cauda (CVaR) para "
         "cada nível de retorno-alvo.",
     )
-    ui.info_carteira_sidebar()
     cart = estado.carteira()
 
     c1, c2, c3 = st.columns(3)
@@ -31,10 +31,10 @@ def render() -> None:
                            "para ~segundos, com uma fronteira mais grosseira.")
 
     ui.status_cache(chave=None, do_grupo=False)
-    st.warning(
-        "⏳ Esta é a funcionalidade **mais pesada**: roda uma otimização CVaR por ponto. "
-        f"Estimativa atual: ~{n_pontos} pontos. Com o modo rápido desligado pode levar "
-        "vários minutos por ponto."
+    callout(
+        f"{badge('Mais pesada', 'warning')} &nbsp; Roda uma otimização CVaR por ponto "
+        f"(~{n_pontos} pontos). Com o modo rápido desligado pode levar vários minutos por ponto.",
+        variant="warning",
     )
 
     if ui.botao_calcular(FUNC, em_cache=False):
@@ -62,7 +62,8 @@ def render() -> None:
 def _exibir(res) -> None:
     st.divider()
     if not res.pontos:
-        st.warning("Nenhum ponto viável encontrado.")
+        callout("Nenhum ponto viável encontrado para os parâmetros informados.",
+                variant="warning")
         return
 
     st.pyplot(fronteira_cvar(res.pontos))

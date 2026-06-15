@@ -8,6 +8,7 @@ import interface
 from modelos.estrategias import TipoEstrategiaBase, EstrategiaUsuario
 from app import estado, componentes as ui
 from app.formatacao import reais, pct, pct_sinal
+from app.tema import badge, callout
 
 FUNC = "comparacao"
 
@@ -18,7 +19,6 @@ def render() -> None:
         "Mede Q1/Mediana/Q3, retorno médio, probabilidade de perda e de meta "
         "para estratégias fixas (100% RF, 100% RV, mistas) sobre o mesmo capital.",
     )
-    ui.info_carteira_sidebar()
     cart = estado.carteira()
 
     bases = st.multiselect(
@@ -73,7 +73,7 @@ def render() -> None:
 def _estrategia_usuario() -> EstrategiaUsuario | None:
     aloc = ui.resultado_anterior("alocacao")
     if aloc is None or not len(getattr(aloc, "distribuicaoPatrimonio", [])):
-        st.warning("Calcule a aba **Alocação** primeiro para incluir sua carteira.")
+        callout("Calcule a aba Alocação primeiro para incluir sua carteira.", variant="warning")
         return None
     frac_rv = aloc.alocadoRendaVariavel / aloc.capitalTotal
     return EstrategiaUsuario("Minha carteira", aloc.distribuicaoPatrimonio, frac_rv)
@@ -96,4 +96,5 @@ def _exibir(res) -> None:
     st.caption("Ordenado por mediana decrescente. P(perda) = chance de terminar abaixo do capital inicial.")
 
     melhor = max(res.estrategias, key=lambda e: e.mediana)
-    st.success(f"Maior mediana: **{melhor.nome}** — {reais(melhor.mediana)}")
+    callout(f"{badge('Maior mediana', 'default')} &nbsp; <strong>{melhor.nome}</strong> — "
+            f"{reais(melhor.mediana)}", variant="secondary")

@@ -17,7 +17,6 @@ def render() -> None:
         "Encontra os pesos da Renda Variável que minimizam a perda esperada "
         "condicional (CVaR), isolando a parcela de bolsa.",
     )
-    ui.info_carteira_sidebar()
     cart = estado.carteira()
 
     c1, c2 = st.columns(2)
@@ -61,5 +60,5 @@ def _exibir(pesos: np.ndarray, cart) -> None:
 
     if st.button("Aplicar pesos ótimos à carteira", key="aplicar_pesos"):
         cart.pesos_rv = np.asarray(pesos, dtype=float)
-        st.success("Pesos aplicados. As abas de alocação/comparação/meta usarão a nova carteira.")
+        st.toast("Pesos aplicados à carteira.")
         st.rerun()

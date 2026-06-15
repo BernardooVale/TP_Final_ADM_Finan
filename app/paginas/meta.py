@@ -8,6 +8,7 @@ import interface
 from app import estado, componentes as ui
 from app.formatacao import reais, pct
 from app.graficos import histograma_patrimonio
+from app.tema import badge, callout
 
 FUNC = "meta"
 
@@ -18,7 +19,6 @@ def render() -> None:
         "Busca binária pela divisão RF/RV que atinge um patrimônio-alvo com a "
         "probabilidade exigida.",
     )
-    ui.info_carteira_sidebar()
     cart = estado.carteira()
 
     c1, c2 = st.columns(2)
@@ -60,9 +60,11 @@ def render() -> None:
 def _exibir(res) -> None:
     st.divider()
     if res.atingivel:
-        st.success("✓ Meta atingível com a alocação encontrada.")
+        callout(f"{badge('Atingível', 'success')} &nbsp; Meta alcançável com a alocação encontrada.",
+                variant="success")
     else:
-        st.error("✗ Meta inatingível com a probabilidade exigida — nem 100% RV alcança.")
+        callout(f"{badge('Inatingível', 'destructive')} &nbsp; Nem 100% em RV atinge a meta com a "
+                "probabilidade exigida.", variant="destructive")
 
     m1, m2, m3 = st.columns(3)
     m1.metric("Alocar em RF", reais(res.alocadoRendaFixa),
