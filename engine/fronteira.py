@@ -120,6 +120,8 @@ def _otimizar_ponto(
     bounds:       BoundsAtivo | None,
     z_fixo:       np.ndarray,
     tickers:      list[str],
+    maxiter:      int = 100,
+    popsize:      int = 5,
 ) -> PontoFronteira | None:
 
     n          = len(params.mus)
@@ -163,8 +165,8 @@ def _otimizar_ponto(
     res = optimize.differential_evolution(
         objetivo_penalizado,
         bounds  = bounds_lst,
-        maxiter = 100,
-        popsize = 5,
+        maxiter = maxiter,
+        popsize = popsize,
         tol     = 1e-3,
         seed    = 42,
         workers = 1,   # parallelism interno conflita com Numba
@@ -233,6 +235,8 @@ def calcular_fronteira(
     diasRebal:    int | None    = None,
     bounds:       BoundsAtivo | None = None,
     retornos_alvo: list[float] | None = None,
+    maxiter:      int           = 100,
+    popsize:      int           = 5,
 ) -> FronteiraEficiente:
     """
     Calcula a fronteira eficiente CVaR varrendo níveis de retorno-alvo.
@@ -267,6 +271,7 @@ def calcular_fronteira(
         ponto = _otimizar_ponto(
             alvo, params, rf, diasInvest, confianca,
             n_sim, diasRebal, bounds, z_fixo, tickers,
+            maxiter, popsize,
         )
         if ponto:
             pontos.append(ponto)

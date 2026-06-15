@@ -1,0 +1,10 @@
+# Dependências de runtime da interface Streamlit (app/).
+# Para a engine + interface. Instale em um venv:
+#   python -m venv .venv && .venv/bin/pip install -r requirements-app.txt
+streamlit>=1.45
+numpy>=2.0
+scipy>=1.13
+pandas>=2.2
+numba>=0.61
+yfinance>=0.2
+matplotlib>=3.8

@@ -91,22 +91,23 @@ def desacumulacao(
     percentis_duracao: list[int] = [10,25,50,75,90],
     tol_saque: float = 1.0,
 ):
+    # Nota: simular_desacumulacao não recebe `tickers` nem `diasRebalanceamento`
+    # (a fase de saques não rebalanceia a RV). Passamos por palavra-chave para
+    # evitar desalinhamento posicional.
     resultado = simular_desacumulacao(
         capitalTotal,
         saque,
         frequenciaSaque,
         fracao_rv,
         propocaoAcao,
-        tickers,
         params,
         rf,
         rf.taxa_diaria,  # Injeta diretamente a taxa diária universalizada
         diasInvestimento,
-        numSimulacoes,
-        diasRebalanceamento,
-        limite_ruina,
-        percentis_duracao,
-        tol_saque
+        numSimulacoes=numSimulacoes,
+        limite_ruina=limite_ruina,
+        percentis_duracao=percentis_duracao,
+        tol_saque=tol_saque,
     )
     return resultado
 
@@ -120,9 +121,13 @@ def fronteira(
     numSimulacoes: int = 100_000,
     diasRebalanceamento: int | None = None,
     bounds: BoundsAtivo | None = None,
-    retornos_alvo: list[float] | None = None
+    retornos_alvo: list[float] | None = None,
+    poupaTempo: bool = False,
 ):
-    
+    # poupaTempo reduz o orçamento do differential_evolution para resposta
+    # interativa na UI (fronteira mais grosseira, porém em segundos por ponto).
+    maxiter, popsize = (8, 3) if poupaTempo else (100, 5)
+
     resultado = calcular_fronteira(
         params,
         tickers,
@@ -133,9 +138,11 @@ def fronteira(
         numSimulacoes,
         diasRebalanceamento,
         bounds,
-        retornos_alvo
+        retornos_alvo,
+        maxiter=maxiter,
+        popsize=popsize,
     )
-    
+
     return resultado
 
 def meta(
@@ -300,17 +307,18 @@ def controle():
         else: 
             break
         
-acoes = ["PETR4.SA", "VALE3.SA", "ITUB4.SA"]
-propocao = [0.4, 0.35, 0.25]
-rentabilidadeRendaFixa = 0.145
-diasInvestimento = 252
-periodo = "3y"
+if __name__ == "__main__":
+    acoes = ["PETR4.SA", "VALE3.SA", "ITUB4.SA"]
+    propocao = [0.4, 0.35, 0.25]
+    rentabilidadeRendaFixa = 0.145
+    diasInvestimento = 252
+    periodo = "3y"
 
-retornos, tickers = baixar_retornos(acoes, periodo)
-params = calibrar_todos(retornos, tickers)
+    retornos, tickers = baixar_retornos(acoes, periodo)
+    params = calibrar_todos(retornos, tickers)
 
-paramsRF = preparar_parametros_rf(
-    rentabilidadeRendaFixa, 
-    FrequenciaRentabilidadeRendaFix.ANUAL, 
-    diasInvestimento
-)
+    paramsRF = preparar_parametros_rf(
+        rentabilidadeRendaFixa,
+        FrequenciaRentabilidadeRendaFix.ANUAL,
+        diasInvestimento
+    )

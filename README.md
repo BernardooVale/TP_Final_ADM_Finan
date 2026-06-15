@@ -1,5 +1,9 @@
 # Documentação da Engine Quantitativa de Portfólio
 
+> 🖥️ **Front-end:** há uma interface Streamlit em [`app/`](app/README.md) que
+> expõe as 8 funcionalidades. Para rodar:
+> `.venv/bin/pip install -r requirements-app.txt && .venv/bin/streamlit run app/main.py`
+
 ## 1. Visão Geral da Arquitetura
 Este repositório contém um motor de simulação estocástica de alta performance para análise e otimização de portfólios financeiros. A arquitetura foi desenhada para superar as limitações da teoria clássica de Markowitz, utilizando **Simulações de Monte Carlo**, **Distribuições Marginais t-Student** e **Cópulas-t** para modelar adequadamente assimetrias e eventos de cauda (cisnes negros).
 

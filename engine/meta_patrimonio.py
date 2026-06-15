@@ -44,7 +44,7 @@ def simular_meta_patrimonio(
     diasRebalanceamento: int | None = None,
     capitalAportes:      float     = 0.0,
     tol:                 float     = 0.005,
-) -> ResultadoMeta:
+) -> tuple[ResultadoMeta, np.ndarray]:
     """
     Busca binária sobre alocRV para atingir P(patrimônio >= meta) >= probabilidade.
 
@@ -89,7 +89,7 @@ def simular_meta_patrimonio(
             patrimonio_p_alvo      = percentil,
             atingivel              = False,
             distribuicaoPatrimonio = dist_max,
-        )
+        ), retornosCumulativos
 
     # Busca binária: menor alocRV que satisfaz prob >= probabilidade
     lo, hi = 0.0, capitalTotal
@@ -233,7 +233,7 @@ def simular_duplo_objetivo(
     n_pontos_pareto:     int        = 20,
     tol:                 float      = 0.5,
     retornosCumulativos: np.ndarray | None = None
-) -> ResultadoDuploObjetivo:
+) -> tuple[ResultadoDuploObjetivo, np.ndarray]:
     """
     Encontra a fronteira de Pareto entre proteção de piso e atingimento de meta.
 
@@ -287,7 +287,7 @@ def simular_duplo_objetivo(
             capitalTotal=capitalTotal, piso=piso, meta=meta,
             viavel=False, ponto_minimo_rv=None, ponto_maximo_rv=None,
             fronteira=[], mensagem=msg,
-        )
+        ), retornosCumulativos
 
     if not piso_viavel and p_total.prob_piso < piso.confianca:
         msg = (f"Piso inatingível mesmo com 0% RV: prob_piso={p_zero.prob_piso*100:.1f}% "
@@ -297,7 +297,7 @@ def simular_duplo_objetivo(
             capitalTotal=capitalTotal, piso=piso, meta=meta,
             viavel=False, ponto_minimo_rv=None, ponto_maximo_rv=None,
             fronteira=[], mensagem=msg,
-        )
+        ), retornosCumulativos
 
     # ── Busca dos extremos do intervalo viável ──
     aloc_min = _busca_binaria_alocRV(
@@ -316,7 +316,7 @@ def simular_duplo_objetivo(
             capitalTotal=capitalTotal, piso=piso, meta=meta,
             viavel=False, ponto_minimo_rv=None, ponto_maximo_rv=None,
             fronteira=[], mensagem=msg,
-        )
+        ), retornosCumulativos
 
     ponto_min = _avalia(aloc_min)
     ponto_max = _avalia(aloc_max)
