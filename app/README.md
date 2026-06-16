@@ -13,7 +13,7 @@ python -m venv .venv
 .venv/bin/streamlit run app/main.py
 ```
 
-A interface abre em `http://localhost:8501`.
+A interface abre em ` `.
 
 ## Fluxo de uso
 
